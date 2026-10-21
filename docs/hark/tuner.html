@@ -1,0 +1,895 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Omarchy Orb · 调参台（v3 设计令牌）</title>
+<style id="tokvars"></style>
+<style>
+/* ============ 调参台外框（不受令牌影响） ============ */
+:root{--sans:"PingFang SC","HarmonyOS Sans SC","MiSans","Noto Sans CJK SC","Source Han Sans SC","Microsoft YaHei",system-ui,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono","PingFang SC","Noto Sans CJK SC","Microsoft YaHei",monospace;--ease:cubic-bezier(.2,.8,.2,1);--side:348px;--z:1}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#e7e8ec;color:#1d2130;font:13px/1.45 var(--sans)}
+#side{position:fixed;left:0;top:0;bottom:0;width:var(--side);background:#fff;border-right:1px solid #d9dbe3;display:flex;flex-direction:column;z-index:10}
+#side header{padding:14px 16px 10px;border-bottom:1px solid #eceef3}
+#side header h1{margin:0;font-size:15px;font-weight:700;letter-spacing:.02em}
+#side header p{margin:2px 0 0;color:#6b7084;font-size:12px}
+#sideBody{flex:1;overflow:auto;padding:4px 16px 16px}
+.sec{margin-top:14px}
+.sec h2{font-size:12px;font-weight:700;color:#4a5068;margin:0 0 8px;display:flex;justify-content:space-between;align-items:baseline;letter-spacing:.04em}
+.sec h2 small{font-weight:400;color:#8b90a3;letter-spacing:0}
+table.colors{width:100%;border-collapse:collapse}
+table.colors th{font-size:11px;color:#8b90a3;font-weight:600;text-align:left;padding:0 0 4px}
+table.colors td{padding:2px 0;vertical-align:middle}
+table.colors td.lab{font-size:12px;color:#30354a;white-space:nowrap;padding-right:6px}
+table.colors td.lab code{font:10.5px var(--mono);color:#9a9fb2;margin-left:3px}
+.cc{display:flex;align-items:center;gap:4px}
+.cc input[type=color]{width:26px;height:24px;padding:0;border:1px solid #d3d6df;border-radius:6px;background:none;cursor:pointer;flex:none}
+.cc input[type=color]::-webkit-color-swatch-wrapper{padding:2px}.cc input[type=color]::-webkit-color-swatch{border:0;border-radius:4px}
+.cc input[type=text]{width:66px;height:24px;border:1px solid #d3d6df;border-radius:6px;font:11px var(--mono);padding:0 5px;color:#30354a}
+.cc input[type=text].bad{border-color:#d33;background:#fff3f3}
+.sz{display:grid;grid-template-columns:1fr 58px;gap:2px 8px;align-items:center;margin-bottom:9px}
+.sz label{font-size:12px;color:#30354a}
+.sz label small{color:#9a9fb2;font-size:11px;margin-left:4px}
+.lock{display:inline-block;color:#b5571b;background:#fdf0e6;border:1px solid #f1d2bb;border-radius:4px;font-size:10.5px;line-height:15px;padding:0 4px;margin-left:5px;font-weight:600}
+.sz input[type=number]{width:58px;height:24px;border:1px solid #d3d6df;border-radius:6px;font:12px var(--mono);padding:0 4px;text-align:right}
+.sz input[type=range]{grid-column:1/3;width:100%;margin:0;accent-color:#3d6fe0}
+.sim-opt{display:flex;align-items:center;gap:8px;font-size:12px;color:#30354a}
+.sim-opt select{flex:1;height:28px;border:1px solid #d3d6df;border-radius:6px;font:12px var(--sans);background:#fff}
+#sideFoot{border-top:1px solid #eceef3;padding:10px 16px 12px;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.tb{height:30px;border:1px solid #d3d6df;background:#f6f7fa;border-radius:7px;font:12px var(--sans);color:#262b3d;cursor:pointer;padding:0 10px;white-space:nowrap}
+.tb:hover{background:#eceef4}
+.tb.pri{background:#3d6fe0;border-color:#3d6fe0;color:#fff}.tb.pri:hover{background:#3360c9}
+.tb.warn{color:#b0402a}
+#saveState{grid-column:1/3;font-size:11px;color:#8b90a3;min-height:15px}
+#main{position:fixed;left:var(--side);right:0;top:0;bottom:0;display:flex;flex-direction:column}
+#bar{height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;background:#f8f9fb;border-bottom:1px solid #d9dbe3}
+#bar b{font-size:13px;margin-right:6px}
+#bar input[type=range]{width:180px;accent-color:#3d6fe0}
+#zv{font:12px var(--mono);width:44px;color:#4a5068}
+#bar .sp{flex:1}
+#bar .hint{font-size:11.5px;color:#8b90a3}
+#vp{flex:1;overflow:auto;position:relative;background:#e7e8ec}
+#sizer{position:relative}
+#canvas{position:absolute;left:0;top:0;transform-origin:0 0;padding:28px;display:flex;flex-direction:column;gap:28px;width:max-content}
+#logwrap{flex:none;height:132px;border-top:1px solid #d9dbe3;background:#fbfbfd;display:flex;flex-direction:column}
+#logwrap.min{height:30px}
+#loghead{height:30px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;color:#4a5068;border-bottom:1px solid #eceef3}
+#loghead button{height:22px;font-size:11px;padding:0 8px}
+#log{margin:0;padding:4px 12px;font:11px/1.5 var(--mono);overflow:auto;flex:1;white-space:pre-wrap;word-break:break-all;color:#30354a}
+#log .tx{color:#2f62d0}#log .rx{color:#3b7d2a}#log .loc{color:#8b90a3}#log .ws{color:#8a4fd6}#log .err{color:#c33}
+#log i{font-style:normal;color:#b0782a}
+/* 画布：主题分区 */
+.band{background:var(--bg);border-radius:28px;padding:30px 36px 36px;box-shadow:0 1px 0 #0001,0 6px 24px #0000000f}
+.band>h2{margin:0 0 6px;color:var(--fg);font:700 min(calc(20px / var(--z)),44px)/1.2 var(--sans)}
+.row{display:flex;gap:44px;align-items:flex-start;margin-top:26px}
+.rowlab{flex:none;width:min(calc(16px / var(--z)),36px);writing-mode:vertical-rl;color:var(--sub);font:600 min(calc(13px / var(--z)),30px)/1 var(--sans);letter-spacing:.1em;align-self:center;white-space:nowrap}
+.board{margin:0;flex:none;display:flex;flex-direction:column;gap:12px}
+.bh{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;font:600 min(calc(13px / var(--z)),26px)/1.25 var(--sans);color:var(--fg);background:var(--panel);border:1px solid var(--pline);border-radius:12px;padding:.35em .6em}
+.bh{flex-wrap:nowrap}.bh .bt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}.bh .bc{flex:none}
+.bh .bc{display:flex;gap:.4em;align-items:center}
+.bh select,.bh button{font:400 .8em var(--sans);height:1.7em;border-radius:.35em;border:1px solid var(--line);background:var(--btn);color:var(--fg);cursor:pointer;padding:0 .4em}
+.devhost{position:relative;flex:none}
+/* 弹窗 */
+#modal{position:fixed;inset:0;background:#10131c88;display:none;align-items:center;justify-content:center;z-index:50}
+#modal.on{display:flex}
+#modal .box{width:min(720px,92vw);background:#fff;border-radius:14px;padding:16px 18px;box-shadow:0 20px 60px #0005;display:flex;flex-direction:column;gap:10px}
+#modal h3{margin:0;font-size:15px}
+#modal p{margin:0;font-size:12px;color:#6b7084}
+#modal textarea{width:100%;height:52vh;font:12px/1.5 var(--mono);border:1px solid #d3d6df;border-radius:8px;padding:10px;resize:vertical;color:#262b3d}
+#modal .acts{display:flex;gap:8px;justify-content:flex-end;align-items:center}
+#modal .acts .msg{flex:1;font-size:12px;color:#3b7d2a}
+#modal .acts .msg.err{color:#c33}
+
+/* ============ 设备实例（全部使用令牌变量） ============ */
+.inst{font-family:var(--sans);color:var(--fg);line-height:1.3}
+.inst button{font-family:inherit;color:inherit;padding:0}
+.inst .screen{position:relative;overflow:hidden;background:var(--scr);color:var(--fg);touch-action:none;user-select:none;-webkit-user-select:none}
+.inst .toast{position:absolute;left:50%;transform:translate(-50%,0) scale(.9);opacity:0;pointer-events:none;background:color-mix(in srgb,var(--scr) 30%,#000 70%);color:#fff;border:2px solid var(--acc);border-radius:999px;padding:10px 22px;font-size:var(--fs-title);font-weight:600;white-space:nowrap;transition:opacity .15s,transform .15s var(--ease);z-index:20}
+.inst .toast.on{opacity:1;transform:translate(-50%,0) scale(1)}
+.inst .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--acc);color:var(--acc);border-radius:999px;padding:2px 12px;font-size:var(--fs-body);white-space:nowrap}
+.inst .chip .ic{width:calc(var(--fs-body) * 1.1);height:calc(var(--fs-body) * 1.1)}
+.inst .btn{background:var(--btn);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(var(--sp) * 1.5);cursor:pointer}
+.inst .btn:active,.inst .btn.press{border-color:var(--acc);transform:scale(.97)}
+.inst .btn.pri{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}
+.inst .ic{width:var(--ic);height:var(--ic);fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.inst .ic .f{fill:currentColor;stroke:none}
+.inst .trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inst .bar{height:var(--bar);border-radius:calc(var(--bar) / 2);background:var(--trk);position:relative;overflow:hidden}
+.inst .bar>i{position:absolute;left:0;top:0;bottom:0;background:var(--acc);border-radius:calc(var(--bar) / 2)}
+.inst .bar>i.ghost{background:var(--acc2);opacity:.55}
+.inst .wave{display:flex;gap:5px;align-items:center;justify-content:center;height:56px}
+.inst .wave i{width:6px;border-radius:3px;background:var(--bad);transition:height .1s linear}
+.inst .tier{display:inline-block;border-radius:calc(var(--r) * .45);padding:2px 10px;font-size:var(--fs-body);font-weight:600}
+.inst .tier.t1{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok)}
+.inst .tier.t2{background:color-mix(in srgb,var(--acc) 22%,transparent);color:var(--acc)}
+.inst .tier.t3{background:color-mix(in srgb,var(--warn) 22%,transparent);color:var(--warn)}
+.inst .cover{border-radius:calc(var(--r) + 2px);display:flex;align-items:center;justify-content:center;color:#fff8;box-shadow:0 18px 40px #0005;flex:none}
+.inst .cover .ic{width:calc(var(--ic) * 2);height:calc(var(--ic) * 2)}
+/* 手机 390×844 */
+.inst .phone{width:414px;height:868px;border-radius:56px;background:var(--frame);padding:12px;box-shadow:0 0 0 1px #0006,0 24px 60px var(--shadow)}
+.inst .phone .screen{width:390px;height:844px;border-radius:44px;display:flex;flex-direction:column}
+.inst .ph-status{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:6px 28px 0;font-size:14px;font-weight:600}
+.inst .ph-status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px}
+.inst .ph-island{position:absolute;left:50%;top:10px;width:110px;height:30px;margin-left:-55px;background:#000;border-radius:16px}
+.inst .ph-mod{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.inst .ph-tabs{flex:none;display:flex;border-top:1px solid var(--line);padding:0 8px 22px;background:color-mix(in srgb,var(--scr) 85%,var(--btn))}
+.inst .ph-tabs button{flex:1;min-width:0;background:none;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:var(--fs-body);color:var(--mut);cursor:pointer;min-height:var(--touch);white-space:nowrap}
+.inst .ph-tabs button[aria-current="true"]{color:var(--acc)}
+.inst .ph-home{position:absolute;left:50%;bottom:8px;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:var(--fg);opacity:.5}
+.inst .ph-toast{top:150px}
+.inst .p-h{font-size:var(--fs-title);font-weight:700;margin:calc(var(--sp) * 1.5) calc(var(--sp) * 5) calc(var(--sp) * 3);flex:none}
+.inst .np-pad{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(var(--sp) * 2);cursor:grab;padding:calc(var(--fs-body) * 1.9) 0 calc(var(--fs-body) * 2.9)}
+.inst .np-pad .cover{width:236px;height:236px}
+.inst .np-pad .chip{position:absolute;left:calc(var(--sp) * 5);top:8px}
+.inst .np-pad .hint{position:absolute;bottom:6px;left:0;right:0;text-align:center;font-size:var(--fs-body);line-height:1.3;color:var(--mut);padding:0 calc(var(--sp) * 5);pointer-events:none}
+.inst .np-pad .scrub{font-size:var(--fs-big);font-weight:700;color:var(--acc2);height:calc(var(--fs-big) * 1.2);line-height:1.2;flex:none}
+.inst .np-info{flex:none;padding:0 calc(var(--sp) * 6) calc(var(--sp) * 4);display:flex;flex-direction:column;gap:calc(var(--sp) * 2)}
+.inst .np-title{font-size:var(--fs-title);font-weight:700}
+.inst .np-artist{font-size:var(--fs-body);color:var(--sub);margin-top:calc(var(--sp) * -1.5)}
+.inst .np-time{display:flex;justify-content:space-between;font:var(--fs-body) var(--mono);color:var(--sub);margin-top:4px}
+.inst .np-vol{display:flex;align-items:center;gap:calc(var(--sp) * 2.5);font-size:var(--fs-body);color:var(--sub)}
+.inst .np-vol .bar{flex:1}
+.inst .np-vol span{width:3em;text-align:right}
+.inst .np-ctl{display:flex;justify-content:center;align-items:center;gap:max(0px,min(calc(var(--sp) * 5),calc((342px - var(--touch) * 2 - var(--btn-pri)) / 2)));margin-top:2px}
+.inst .np-ctl .btn{flex:none;width:var(--touch);height:var(--touch);border-radius:50%;gap:0}
+.inst .np-ctl .btn small{font-size:var(--fs-body);line-height:1}
+.inst .np-ctl .btn.pri{width:var(--btn-pri);height:var(--btn-pri)}
+.inst .np-ctl .btn.pri .ic{width:calc(var(--ic) * 1.4);height:calc(var(--ic) * 1.4)}
+.inst .np-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(var(--sp) * 4);padding:0 calc(var(--sp) * 7)}
+.inst .np-empty p{margin:0 0 8px;color:var(--sub);font-size:var(--fs-body)}
+.inst .np-empty .btn{width:100%;height:var(--touch);flex-direction:row;gap:14px;font-size:var(--fs-title);font-weight:600}
+.inst .ws-cur{margin:0 calc(var(--sp) * 5) calc(var(--sp) * 4);padding:calc(var(--sp) * 3.5) calc(var(--sp) * 4);border:1px solid var(--line);border-radius:calc(var(--r) - 2px);background:var(--btn);flex:none}
+.inst .ws-cur small{display:block;color:var(--mut);font-size:var(--fs-body);margin-bottom:4px}
+.inst .ws-cur b{display:block;font-size:var(--fs-body)}
+.inst .ws-cur span{font-size:var(--fs-body);color:var(--sub)}
+.inst .ws-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:calc(var(--sp) * 3);padding:0 calc(var(--sp) * 5)}
+.inst .ws-grid .btn{height:calc(var(--touch) + 16px);font-size:var(--fs-big);font-weight:700;line-height:1;gap:calc(var(--sp) * 1)}
+.inst .ws-grid .btn small{font-size:var(--fs-body);font-weight:400;color:var(--sub)}
+.inst .ws-grid .btn.pri small{color:var(--on-acc)}
+.inst .qk-grid{display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--sp) * 3.5);padding:calc(var(--sp) * 2) calc(var(--sp) * 5)}
+.inst .qk-grid .btn{height:max(170px,var(--touch));font-size:var(--fs-body);font-weight:600}
+.inst .qk-grid .ic{width:calc(var(--ic) * 1.57);height:calc(var(--ic) * 1.57)}
+.inst .qk-foot{margin:calc(var(--sp) * 4) calc(var(--sp) * 5);font-size:var(--fs-body);color:var(--sub)}
+.inst .pt-card{margin:0 calc(var(--sp) * 5);min-height:190px;border:1px solid var(--line);border-radius:var(--r);background:var(--btn);padding:calc(var(--sp) * 4);display:flex;flex-direction:column;gap:calc(var(--sp) * 2.5);flex:none}
+.inst .pt-card .q{font-size:var(--fs-title);font-weight:600}
+.inst .pt-card .r{font-size:var(--fs-body);color:var(--sub)}
+.inst .pt-card .ph{color:var(--mut);font-size:var(--fs-body)}
+.inst .pt-hold{position:absolute;left:50%;bottom:28px;width:calc(var(--btn-pri) * 1.5);height:calc(var(--btn-pri) * 1.5);transform:translateX(-50%);border-radius:50%;font-size:var(--fs-title);font-weight:700}
+.inst .pt-hold:active,.inst .pt-hold.press{transform:translateX(-50%) scale(.97)}
+.inst .pt-hold .ic{width:calc(var(--ic) * 1.7);height:calc(var(--ic) * 1.7)}
+.inst .pt-hold.rec{background:var(--bad);border-color:var(--bad);color:#fff;transform:translateX(-50%) scale(1.06)}
+.inst .nw{white-space:nowrap}
+.inst .pt-tiers{margin:calc(var(--sp) * 3.5) calc(var(--sp) * 5) 0;font-size:var(--fs-body);color:var(--sub);line-height:1.75}
+/* 圆屏 466×466 */
+.inst .orb{width:520px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.inst .orb-ring{width:490px;height:490px;border-radius:50%;background:var(--frame);padding:12px;box-shadow:0 0 0 1px #0006,0 24px 60px var(--shadow)}
+.inst .orb .screen{width:466px;height:466px;border-radius:50%;background:var(--orbScr)}
+.inst .orb-mod{position:absolute;inset:0}
+.inst .orb-toast{top:206px}
+.inst .orb-dots{position:absolute;left:0;right:0;bottom:22px;display:flex;justify-content:center;gap:10px;pointer-events:none}
+.inst .orb-dots i{width:8px;height:8px;border-radius:50%;background:var(--mut)}
+.inst .orb-dots i.on{background:var(--acc);width:22px;border-radius:4px}
+.inst .hw{display:flex;gap:12px}
+.inst .hw button{min-height:48px;padding:0 16px;border-radius:12px;background:var(--btn);border:1px solid var(--line);font-size:14px;cursor:pointer}
+.inst .hw button.rec{background:var(--bad);color:#fff}
+.inst .o-abs{position:absolute;left:0;right:0;text-align:center}
+.inst .o-t{font-size:var(--fs-title);font-weight:700}.inst .o-s{font-size:var(--fs-body);color:var(--sub)}
+.inst .o-pad{position:absolute;inset:0;border-radius:50%;cursor:grab}
+.inst .o-grid{position:absolute;display:grid}
+.inst .o-grid .btn{font-weight:700;line-height:1}
+.inst .o-grid .btn small{font-size:var(--fs-body);font-weight:600}
+.inst .o-grid .btn .ic{width:calc(var(--ic) * 1.43);height:calc(var(--ic) * 1.43)}
+.inst .o-hold .ic{width:calc(var(--ic) * 1.7);height:calc(var(--ic) * 1.7)}
+.inst svg.o-ring{position:absolute;inset:0;pointer-events:none}
+</style>
+</head>
+<body>
+<aside id="side" aria-label="设计令牌">
+  <header><h1>Omarchy Orb · 调参台</h1><p>v3 设计令牌 · 改一处，所有实例实时跟随 · 尺寸以 466 逻辑像素为基准</p></header>
+  <div id="sideBody">
+    <div class="sec"><h2>颜色 <small>深色 = Tokyo Night</small></h2><table class="colors" id="colorTbl"></table></div>
+    <div class="sec"><h2>尺寸 <small><span class="lock" style="margin:0">锁</span> = 硬下限，滑块最小值即下限</small></h2><div id="sizeBox"></div></div>
+    <div class="sec"><h2>交互模拟</h2>
+      <div class="sim-opt">PTT 识别结果<select id="pttPick"></select></div>
+    </div>
+  </div>
+  <div id="sideFoot">
+    <button class="tb pri" id="bSave">保存（显示 JSON）</button>
+    <button class="tb" id="bExport">导出 tokens.json</button>
+    <button class="tb" id="bCopy">复制 JSON</button>
+    <button class="tb" id="bImport">从 JSON 导入</button>
+    <button class="tb warn" id="bReset" style="grid-column:1/3">重置为 v3 默认</button>
+    <div id="saveState"></div>
+  </div>
+</aside>
+<main id="main">
+  <div id="bar">
+    <b>画布</b>缩放<input type="range" id="zoom" min="15" max="150" step="1" value="40"><span id="zv">40%</span>
+    <button class="tb" id="bFitW">适应宽度</button><button class="tb" id="bFitAll">全部可见</button><button class="tb" id="bZ100">100%</button>
+    <span class="sp"></span><span class="hint">每张画板都是独立实例，可点、可滑（手势同 v3）· Ctrl+滚轮缩放</span>
+  </div>
+  <div id="vp"><div id="sizer"><div id="canvas"></div></div></div>
+  <div id="logwrap"><div id="loghead"><span>交互日志（各实例发往 mock daemon 的命令）</span><span><button class="tb" id="bClearLog">清空</button> <button class="tb" id="bMinLog">收起</button></span></div><pre id="log" aria-live="polite"></pre></div>
+</main>
+<div id="modal" role="dialog" aria-modal="true"><div class="box"><h3 id="mTitle"></h3><p id="mDesc"></p><textarea id="mText" spellcheck="false"></textarea><div class="acts"><span class="msg" id="mMsg"></span><button class="tb" id="mCopy">复制</button><button class="tb pri" id="mApply">应用导入</button><button class="tb" id="mClose">关闭</button></div></div></div>
+<script>
+(() => {
+"use strict";
+/* =====================================================================
+   令牌：v3 默认值 + 下限/上限
+   ===================================================================== */
+const COLOR_KEYS = [
+  ["bg", "页面背景"], ["panel", "面板"], ["pline", "面板描边"], ["scr", "屏幕底色"], ["orbScr", "圆屏底色"],
+  ["fg", "主文字"], ["sub", "次文字"], ["mut", "弱文字"], ["acc", "强调色"], ["acc2", "第二强调"], ["on-acc", "强调上文字"],
+  ["btn", "按钮底"], ["line", "描边/分隔"], ["trk", "进度轨道"], ["ok", "成功"], ["warn", "警告"], ["bad", "危险/录音"], ["frame", "外壳边框"]
+];
+const DEF_THEMES = {
+  tokyo: { bg: "#0b0b10", panel: "#11121a", pline: "#1f2335", scr: "#1a1b26", orbScr: "#000000", fg: "#c0caf5", sub: "#9aa5ce", mut: "#565f89", acc: "#7aa2f7", acc2: "#bb9af7", "on-acc": "#11121a", btn: "#24283b", line: "#2f334d", trk: "#2f334d", ok: "#9ece6a", warn: "#e0af68", bad: "#f7768e", frame: "#2b2d3a" },
+  light: { bg: "#d5d6db", panel: "#ecedf1", pline: "#c4c8da", scr: "#e1e2e7", orbScr: "#e1e2e7", fg: "#343b58", sub: "#4c5578", mut: "#8990b3", acc: "#2e7de9", acc2: "#9854f1", "on-acc": "#ffffff", btn: "#f4f5f8", line: "#c4c8da", trk: "#c4c8da", ok: "#587539", warn: "#8c6c3e", bad: "#c64343", frame: "#9699a8" }
+};
+const SHADOW = { tokyo: "#000c", light: "#0004" };
+/* key, 标签, 默认, 最小(=硬下限时锁), 最大, 是否硬下限, 说明 */
+const SIZE_DEF = [
+  ["radius", "圆角", 18, 0, 40, false, "按钮圆角；卡片 −2，封面 +2"],
+  ["space", "间距基数", 4, 2, 8, false, "所有间距 = 基数 × n"],
+  ["fsBody", "正文字号", 20, 20, 32, true, "屏内正文/说明/标签"],
+  ["fsTitle", "标题字号", 22, 20, 40, true, "标题、歌名、提示气泡"],
+  ["fsBig", "大数字字号", 30, 20, 64, true, "工作区编号、拖动目标时间"],
+  ["btnPri", "主按钮尺寸", 120, 88, 180, true, "播放/打开/快捷；PTT 按钮 = ×1.5；≥ 触控区"],
+  ["touch", "触控区尺寸", 88, 88, 140, true, "所有可点目标的最小边长"],
+  ["icon", "图标尺寸", 28, 20, 56, false, "基准图标；大图标按倍数放大"],
+  ["barPhone", "进度条粗细（手机）", 6, 2, 16, false, "进度/音量条"],
+  ["ringOrb", "进度环粗细（圆屏）", 8, 2, 24, false, "圆屏外环"]
+];
+const DEFAULTS = () => ({ themes: JSON.parse(JSON.stringify(DEF_THEMES)), size: Object.fromEntries(SIZE_DEF.map((s) => [s[0], s[2]])) });
+const LS_KEY = "omarchy-orb-tuner-tokens-v1";
+let TOK = DEFAULTS();
+const T = {}; // 数值令牌（渲染时读取）
+
+/* =====================================================================
+   CORE · util（同 v3）
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const fmt = (s) => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, "0"); return h ? `${h}:${String(m).padStart(2, "0")}:${x}` : `${m}:${x}`; };
+const now = () => performance.now();
+const isObj = (o) => o && typeof o === "object" && !Array.isArray(o);
+const merge = (dst, patch) => { for (const k in patch) { const v = patch[k]; if (v === null) dst[k] = null; else if (isObj(v) && isObj(dst[k])) merge(dst[k], v); else dst[k] = isObj(v) ? JSON.parse(JSON.stringify(v)) : v; } return dst; };
+const hue = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.codePointAt(0)) % 360; return h; };
+const J = (o) => JSON.stringify(o);
+const ICON = {
+  play: '<path class="f" d="M8 5l12 7-12 7z"/>', pause: '<path class="f" d="M7 5h4v14H7zM13 5h4v14h-4z"/>',
+  next: '<path class="f" d="M5 6l9 6-9 6z"/><path d="M18 6v12"/>', prev: '<path class="f" d="M19 6l-9 6 9 6z"/><path d="M6 6v12"/>',
+  fwd: '<path d="M13 5a7 7 0 1 1-7 7"/><path d="M13 2v6h-0"/><path d="M10 2l3 3-3 3"/>', back: '<path d="M11 5a7 7 0 1 0 7 7"/><path d="M14 2l-3 3 3 3"/>',
+  vol: '<path class="f" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>', mute: '<path class="f" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9l5 6M21 9l-5 6"/>',
+  music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+  podcast: '<rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/>',
+  video: '<rect x="3" y="5" width="14" height="14" rx="2"/><path d="M17 10l4-3v10l-4-3"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>', mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
+  shot: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  close: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 10l6 6M15 10l-6 6"/>',
+  launch: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>', wave: '<path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/>'
+};
+const ic = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[n] || ""}</svg>`;
+
+/* =====================================================================
+   CORE · gesture engine（逐字复制自 v3）
+   ===================================================================== */
+const GESTURE_CFG = { lockPx: 12, longMs: 600, flickMaxMs: 280, flickMinV: 0.45, flickMinPx: 36 };
+function lockAxis(dx, dy, lockPx) {
+  if (Math.hypot(dx, dy) < lockPx) return null;
+  return Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+}
+function classifyRelease(g, cfg) {
+  cfg = cfg || GESTURE_CFG;
+  if (g.longFired) return { type: "none" };
+  if (!g.axis) return g.dt < cfg.longMs ? { type: "tap" } : { type: "longpress" };
+  if (g.axis === "v") return { type: "vdrag", dy: g.dy };
+  const v = Math.abs(g.dx) / Math.max(g.dt, 1);
+  if (g.dt <= cfg.flickMaxMs && v >= cfg.flickMinV && Math.abs(g.dx) >= cfg.flickMinPx) return { type: "flick", dir: g.dx > 0 ? 1 : -1 };
+  return { type: "hdrag", dx: g.dx };
+}
+function createGestureEngine(cfg, emit) {
+  cfg = Object.assign({}, GESTURE_CFG, cfg || {});
+  let g = null;
+  return {
+    get active() { return !!g; },
+    down(x, y, t) { g = { x0: x, y0: y, t0: t, axis: null, longFired: false, dx: 0, dy: 0 }; emit({ type: "down" }); },
+    move(x, y, t) {
+      if (!g || g.longFired) return;
+      g.dx = x - g.x0; g.dy = y - g.y0;
+      if (!g.axis) { g.axis = lockAxis(g.dx, g.dy, cfg.lockPx); if (g.axis) emit({ type: "lock", axis: g.axis }); }
+      if (g.axis === "v") emit({ type: "vmove", dy: g.dy });
+      else if (g.axis === "h") emit({ type: "hmove", dx: g.dx, dt: t - g.t0 });
+    },
+    tick(t) { if (g && !g.axis && !g.longFired && t - g.t0 >= cfg.longMs) { g.longFired = true; emit({ type: "longpress" }); } },
+    up(x, y, t) {
+      if (!g) return null;
+      if (x != null) { g.dx = x - g.x0; g.dy = y - g.y0; if (!g.axis) g.axis = lockAxis(g.dx, g.dy, cfg.lockPx); }
+      const r = classifyRelease({ axis: g.axis, dx: g.dx, dy: g.dy, dt: t - g.t0, longFired: g.longFired }, cfg);
+      g = null; if (r.type !== "none") emit(r); return r;
+    },
+    cancel() { g = null; emit({ type: "cancel" }); }
+  };
+}
+
+/* =====================================================================
+   MOCK · X1 remote-daemon（每个实例一份，逻辑同 v3）
+   ===================================================================== */
+const LIB = {
+  music: { source: "spotify", kind: "music", items: [["晴天", "周杰伦", 269], ["夜曲", "周杰伦", 226], ["后来", "刘若英", 341], ["红豆", "王菲", 254]] },
+  podcast: { source: "pocketcasts", kind: "podcast", items: [["第 312 期 · 大航海时代的香料", "忽左忽右", 4350]] },
+  video: { source: "mpv", kind: "video", items: [["星际穿越 Interstellar (2014)", "mpv · 本地文件", 10143]] }
+};
+const WIN = [["kitty", "nvim ~/orb/spec.md"], ["firefox", "Omarchy 手册 — Mozilla Firefox"], ["spotify", "Spotify Premium"], ["kitty", "btop"], ["Typora", "omarchy-orb-v3-spec.md"]];
+function makeDaemon(every) {
+  const S = {
+    host: "x1", player: null,
+    workspaces: { active: 1, list: [1, 2, 3, 4, 5, 6, 7, 8, 9].map((id) => ({ id, windows: [3, 2, 1, 0, 1, 0, 0, 0, 0][id - 1] })) },
+    window: { title: WIN[0][1], class: WIN[0][0] }
+  };
+  let idx = 0, kindNow = "music", wsSubs = [], winI = 0;
+  const push = (data, quiet) => { const msg = { type: "patch", data }; wsSubs.forEach((f) => f(msg, quiet)); };
+  function makePlayer(kind, i, keep) {
+    const L = LIB[kind], it = L.items[i % L.items.length];
+    return { source: L.source, kind: L.kind, title: it[0], artist: it[1], pos: 0, len: it[2], status: "Playing", volume: keep ? keep.volume : 45, muted: keep ? keep.muted : false, art: null };
+  }
+  function setKind(kind) {
+    kindNow = kind; idx = 0;
+    if (kind === "none") { S.player = null; push({ player: null }); return; }
+    S.player = makePlayer(kind, 0, S.player); S.player.pos = kind === "music" ? 37 : kind === "podcast" ? 1260 : 3605;
+    push({ player: S.player });
+  }
+  function track(d) {
+    const p = S.player; if (!p) return;
+    idx = (idx + d + 99) % LIB[p.kind].items.length;
+    S.player = makePlayer(p.kind, idx, p); push({ player: S.player });
+  }
+  function exec(module, action, a) {
+    a = a || {}; const p = S.player, pn = p ? p.source : "?";
+    if (module === "nowplaying") {
+      if (action === "open") { setKind(a.kind); return `omarchy-launch-${a.kind === "music" ? "spotify" : a.kind === "podcast" ? "pocketcasts" : "mpv"}`; }
+      if (!p) return { error: "no_player" };
+      switch (action) {
+        case "toggle": p.status = p.status === "Playing" ? "Paused" : "Playing"; push({ player: { status: p.status } }); return `playerctl -p ${pn} play-pause`;
+        case "play": p.status = "Playing"; push({ player: { status: p.status } }); return `playerctl -p ${pn} play`;
+        case "pause": p.status = "Paused"; push({ player: { status: p.status } }); return `playerctl -p ${pn} pause`;
+        case "next": track(1); return `playerctl -p ${pn} next`;
+        case "prev": track(-1); return `playerctl -p ${pn} previous`;
+        case "skip": p.pos = clamp(p.pos + a.by, 0, p.len - 1); push({ player: { pos: p.pos } }); return `playerctl -p ${pn} position ${Math.abs(a.by)}${a.by > 0 ? "+" : "-"}`;
+        case "seek": p.pos = clamp(a.to, 0, p.len - 1); push({ player: { pos: p.pos } }); return `playerctl -p ${pn} position ${a.to}`;
+        case "volume": p.volume = clamp(a.set, 0, 100); push({ player: { volume: p.volume } }); return `wpctl set-volume @DEFAULT_AUDIO_SINK@ ${(p.volume / 100).toFixed(2)}`;
+        case "mute": p.muted = a.on == null ? !p.muted : !!a.on; push({ player: { muted: p.muted } }); return `wpctl set-mute @DEFAULT_AUDIO_SINK@ ${p.muted ? 1 : 0}`;
+        case "playq": {
+          if (!p || p.kind !== "music") setKind("music");
+          const items = LIB.music.items, k = items.findIndex((x) => x[0] === a.title && (!a.artist || x[1] === a.artist));
+          idx = k >= 0 ? k : 0; S.player = makePlayer("music", idx, S.player); push({ player: S.player });
+          return `spotify_player playback start track --name "${a.artist || ""} ${a.title}"`;
+        }
+      }
+    }
+    if (module === "workspaces" && action === "switch") {
+      S.workspaces.active = a.id; const w = S.workspaces.list[a.id - 1];
+      S.window = w.windows ? { title: WIN[(a.id + 1) % WIN.length][1], class: WIN[(a.id + 1) % WIN.length][0] } : { title: "", class: "" };
+      push({ workspaces: { active: a.id }, window: S.window }); return `hyprctl dispatch workspace ${a.id}`;
+    }
+    if (module === "quick") {
+      if (action === "close") { const w = S.workspaces.list[S.workspaces.active - 1]; if (w.windows) w.windows--; S.window = w.windows ? { title: WIN[(winI + 2) % WIN.length][1], class: WIN[(winI + 2) % WIN.length][0] } : { title: "", class: "" }; push({ window: S.window, workspaces: { list: S.workspaces.list } }); return "hyprctl dispatch killactive"; }
+      return { screenshot: "omarchy-cmd-screenshot", lock: "omarchy-lock-screen", launcher: "omarchy-launch-walker" }[action] || { error: "unknown_action" };
+    }
+    return { error: "unknown_action" };
+  }
+  const RULES = [
+    [/^(暂停|停一下)$/, 1, () => ["nowplaying", "pause", {}]], [/^(播放|继续)$/, 1, () => ["nowplaying", "play", {}]],
+    [/^下一首$/, 1, () => ["nowplaying", "next", {}]], [/^上一首$/, 1, () => ["nowplaying", "prev", {}]],
+    [/^静音$/, 1, () => ["nowplaying", "mute", { on: true }]], [/^锁屏$/, 1, () => ["quick", "lock", {}]], [/^截图$/, 1, () => ["quick", "screenshot", {}]],
+    [/^音量(?:调到|设为)?\s*(\d{1,3})$/, 2, (m) => ["nowplaying", "volume", { set: clamp(+m[1], 0, 100) }]],
+    [/^切到工作区\s*([1-9])$/, 2, (m) => ["workspaces", "switch", { id: +m[1] }]],
+    [/^播放\s+(\S+)\s+(\S+)$/, 2, (m) => ["nowplaying", "playq", { artist: m[1], title: m[2] }]]
+  ];
+  function ptt(text) {
+    for (const [re, tier, f] of RULES) {
+      const m = text.match(re); if (!m) continue;
+      const [module, action, args] = f(m), ex = exec(module, action, args);
+      return { text, tier, action: { module, action, args }, result: typeof ex === "string" ? "ok" : ex.error, _exec: ex };
+    }
+    return { text, tier: 3, action: null, result: "已记录，v1 不处理" };
+  }
+  every(() => {
+    const p = S.player; if (!p || p.status !== "Playing") return;
+    p.pos += 1; if (p.pos >= p.len) { if (p.kind === "music") return track(1); p.pos = p.len; p.status = "Stopped"; push({ player: { pos: p.pos, status: p.status } }); return; }
+    push({ player: { pos: p.pos } }, true);
+  }, 1000);
+  every(() => {
+    const w = S.workspaces.list[S.workspaces.active - 1]; if (!w.windows) return;
+    winI = (winI + 1) % WIN.length; S.window = { title: WIN[winI][1], class: WIN[winI][0] }; push({ window: S.window });
+  }, 14000);
+  setKind("music");
+  return { state: () => JSON.parse(JSON.stringify(S)), exec, ptt, setKind, sub: (f) => wsSubs.push(f), kind: () => kindNow };
+}
+
+/* =====================================================================
+   MODULES · 可多实例：render(shell, v{state,ui}) 纯函数读 T；handle(e, ctx) 只经 ctx 操作实例
+   圆屏为绝对定位，坐标由令牌推导（默认值下与 v3 像素一致）
+   ===================================================================== */
+const SRC_LABEL = { music: "音乐", podcast: "播客", video: "视频" };
+const coverStyle = (p) => { const h = hue(p.title + p.artist); return `background:linear-gradient(135deg,hsl(${h} 55% 45%),hsl(${(h + 50) % 360} 60% 28%))`; };
+const NowPlaying = {
+  id: "nowplaying", name: "正在播放", icon: "music",
+  render(shell, v) {
+    const p = v.state.player, u = v.ui;
+    if (!p) return shell === "phone" ? this.emptyPhone() : this.emptyOrb();
+    const vol = u.vol != null ? u.vol : p.volume, pos = p.pos, tgt = u.scrub;
+    const playIc = p.status === "Playing" ? "pause" : "play", isMusic = p.kind === "music";
+    const tag = `${SRC_LABEL[p.kind]} · ${p.source}`;
+    if (shell === "phone") {
+      return `<div class="np-pad" data-pad>
+          <span class="chip">${ic(p.kind, "")}${esc(tag)}</span>
+          <div class="cover" style="${coverStyle(p)}">${ic(playIc === "pause" ? p.kind : "pause")}</div>
+          <div class="scrub">${tgt != null ? `→ ${fmt(tgt)}` : ""}</div>
+          <div class="hint">点 播放/暂停 · ↕ 音量 · ↔ 快滑${isMusic ? "切歌" : "±15s"} / 慢拖进度 · 长按 静音</div>
+        </div>
+        <div class="np-info">
+          <div class="np-title trunc">${esc(p.title)}</div><div class="np-artist trunc">${esc(p.artist)}</div>
+          <div><div class="bar"><i style="width:${(pos / p.len) * 100}%"></i>${tgt != null ? `<i class="ghost" style="width:${(tgt / p.len) * 100}%"></i>` : ""}</div>
+            <div class="np-time"><span>${fmt(tgt != null ? tgt : pos)}</span><span>${fmt(p.len)}</span></div></div>
+          <div class="np-vol">${ic(p.muted ? "mute" : "vol")}<div class="bar"><i style="width:${p.muted ? 0 : vol}%"></i></div><span>${p.muted ? "静音" : vol}</span></div>
+          <div class="np-ctl">
+            <button class="btn" data-act="${isMusic ? "prev" : "back15"}" aria-label="${isMusic ? "上一首" : "后退15秒"}">${ic(isMusic ? "prev" : "back")}${isMusic ? "" : "<small>15</small>"}</button>
+            <button class="btn pri" data-act="toggle" aria-label="播放/暂停">${ic(playIc)}</button>
+            <button class="btn" data-act="${isMusic ? "next" : "fwd15"}" aria-label="${isMusic ? "下一首" : "前进15秒"}">${ic(isMusic ? "next" : "fwd")}${isMusic ? "" : "<small>15</small>"}</button>
+          </div>
+        </div>`;
+    }
+    const sw = T.ringOrb, R = 223 - sw / 2, C = 2 * Math.PI * R, f = pos / p.len, ft = tgt != null ? tgt / p.len : null;
+    const chipTop = 52, chipH = Math.round(T.fsBody * 1.3 + 8), coverTop = chipTop + chipH + 18, CV = 140;
+    const tTop = coverTop + CV + 14, aTop = Math.round(tTop + T.fsTitle * 1.25 + 6), timeTop = Math.round(aTop + T.fsBody * 1.25 + 13), volTop = Math.round(timeTop + T.fsBody * 1.25 + 11);
+    return `<svg class="o-ring" viewBox="0 0 466 466"><circle cx="233" cy="233" r="${R}" fill="none" stroke="var(--trk)" stroke-width="${sw}"/>
+        <circle cx="233" cy="233" r="${R}" fill="none" stroke="var(--acc)" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${(f * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 233 233)"/>
+        ${ft != null ? `<circle cx="233" cy="233" r="${R}" fill="none" stroke="var(--acc2)" stroke-opacity=".7" stroke-width="${sw}" stroke-dasharray="${(ft * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 233 233)"/>` : ""}</svg>
+      <div class="o-pad" data-pad></div>
+      <div class="o-abs" style="top:${chipTop}px;pointer-events:none"><span class="chip">${esc(tag)}</span></div>
+      <div class="cover" style="position:absolute;left:${233 - CV / 2}px;top:${coverTop}px;width:${CV}px;height:${CV}px;border-radius:50%;pointer-events:none;${coverStyle(p)}">${ic(playIc === "pause" ? p.kind : "pause")}</div>
+      <div class="o-abs o-t trunc" style="top:${tTop}px;padding:0 70px;pointer-events:none">${esc(p.title)}</div>
+      <div class="o-abs o-s trunc" style="top:${aTop}px;padding:0 80px;pointer-events:none">${esc(p.artist)}</div>
+      <div class="o-abs o-s" style="top:${timeTop}px;font-family:var(--mono);pointer-events:none;${tgt != null ? "color:var(--acc2);font-weight:700" : ""}">${fmt(tgt != null ? tgt : pos)} / ${fmt(p.len)}</div>
+      <div class="o-abs o-s" style="top:${volTop}px;pointer-events:none">${p.muted ? "静音" : "音量 " + vol}</div>`;
+  },
+  emptyPhone() {
+    return `<div class="np-empty"><p>当前没有播放器，打开一个：</p>
+      <button class="btn" data-act="open" data-arg="music">${ic("music")}音乐</button>
+      <button class="btn" data-act="open" data-arg="podcast">${ic("podcast")}播客</button>
+      <button class="btn" data-act="open" data-arg="video">${ic("video")}视频</button></div>`;
+  },
+  emptyOrb() {
+    const c = T.btnPri, g = T.space * 3, W = 3 * c + 2 * g, top = 233 - c / 2;
+    return `<div class="o-abs o-s" style="top:${top - 63}px">没有播放器</div>
+      <div class="o-grid" style="left:${233 - W / 2}px;top:${top}px;gap:${g}px;grid-template-columns:repeat(3,${c}px)">
+      ${["music", "podcast", "video"].map((k) => `<button class="btn" style="height:${c}px;border-radius:50%" data-act="open" data-arg="${k}">${ic(k)}<small>${SRC_LABEL[k]}</small></button>`).join("")}</div>`;
+  },
+  handle(e, ctx) {
+    const p = ctx.state.player, u = ctx.ui;
+    if (e.type === "act") {
+      if (e.name === "open") { ctx.toast(`打开${SRC_LABEL[e.arg]}…`); return ctx.cmd("open", { kind: e.arg }); }
+      if (!p) return;
+      if (e.name === "toggle") return this.toggle(ctx);
+      if (e.name === "next" || e.name === "prev") { ctx.toast(e.name === "next" ? "下一首" : "上一首"); return ctx.cmd(e.name); }
+      if (e.name === "fwd15" || e.name === "back15") return this.skip(ctx, e.name === "fwd15" ? 15 : -15);
+      return;
+    }
+    if (!e.gesture || !p) return;
+    const pxPerVol = ctx.shell === "phone" ? 4 : 3, padW = ctx.shell === "phone" ? 390 : 330;
+    switch (e.type) {
+      case "down": u.vol0 = p.volume; u.lastVolSent = 0; break;
+      case "tap": this.toggle(ctx); break;
+      case "vmove": {
+        const v = clamp(Math.round(u.vol0 - e.dy / pxPerVol), 0, 100);
+        if (v !== u.vol) { u.vol = v; ctx.toast(`音量 ${v}`); ctx.render(); }
+        if (now() - u.lastVolSent > 150) { u.lastVolSent = now(); ctx.cmd("volume", { set: v }); }
+        break;
+      }
+      case "vdrag": if (u.vol != null) { const v = u.vol; u.vol = null; ctx.haptic(); ctx.optimistic({ player: { volume: v } }, "松手提交"); ctx.cmd("volume", { set: v }); } break;
+      case "hmove": {
+        if (e.dt < 120 && Math.abs(e.dx) < 60) break;
+        const spp = clamp(p.len / (padW * 1.5), 0.25, 8);
+        u.scrub = Math.round(clamp(p.pos + e.dx * spp, 0, p.len - 1)); ctx.toast(`→ ${fmt(u.scrub)}`, 1500); ctx.render(); break;
+      }
+      case "flick": u.scrub = null;
+        if (p.kind === "music") { ctx.toast(e.dir > 0 ? "下一首 ▶" : "◀ 上一首"); ctx.haptic(); ctx.cmd(e.dir > 0 ? "next" : "prev"); }
+        else this.skip(ctx, e.dir * 15);
+        ctx.render(); break;
+      case "hdrag": if (u.scrub != null) { const to = u.scrub; u.scrub = null; ctx.toast(`跳到 ${fmt(to)}`); ctx.haptic(); ctx.optimistic({ player: { pos: to } }, "seek 预览"); ctx.cmd("seek", { to }); } break;
+      case "longpress": { const on = !p.muted; ctx.haptic(); ctx.toast(on ? "静音" : "取消静音"); ctx.optimistic({ player: { muted: on } }, "长按 600ms"); ctx.cmd("mute", { on }); break; }
+      case "cancel": u.scrub = null; u.vol = null; ctx.render(); break;
+    }
+  },
+  toggle(ctx) { const p = ctx.state.player, st = p.status === "Playing" ? "Paused" : "Playing"; ctx.toast(st === "Playing" ? "▶ 播放" : "❚❚ 暂停", 600); ctx.haptic(); ctx.optimistic({ player: { status: st } }, "立即响应"); ctx.cmd("toggle"); },
+  skip(ctx, by) { const p = ctx.state.player; ctx.toast(by > 0 ? "+15s" : "−15s"); ctx.haptic(); ctx.optimistic({ player: { pos: clamp(p.pos + by, 0, p.len - 1) } }); ctx.cmd("skip", { by }); }
+};
+const Workspaces = {
+  id: "workspaces", name: "工作区", icon: "grid",
+  render(shell, v) {
+    const W = v.state.workspaces, w = v.state.window;
+    if (shell === "phone") return `<div class="p-h">工作区</div>
+      <div class="ws-cur"><small>当前窗口 · 工作区 ${W.active}</small><b class="trunc">${esc(w.title || "（空工作区）")}</b><span class="trunc" style="display:block">${esc(w.class || "—")}</span></div>
+      <div class="ws-grid">${W.list.map((x) => `<button class="btn ${x.id === W.active ? "pri" : ""}" data-act="switch" data-arg="${x.id}" aria-label="工作区 ${x.id}">${x.id}<small>${x.windows ? "●".repeat(Math.min(x.windows, 3)) : "空"}</small></button>`).join("")}</div>`;
+    const c = T.touch, g = T.space * 3, S = 3 * c + 2 * g, top = Math.round(233 - S / 2 + 11);
+    return `<div class="o-abs o-s trunc" style="top:${top - 70}px;padding:0 120px">${esc(w.class || "空")}</div>
+      <div class="o-abs o-t trunc" style="top:${top - 44}px;padding:0 90px;font-size:var(--fs-body)">${esc(w.title || "（空工作区）")}</div>
+      <div class="o-grid" style="left:${233 - S / 2}px;top:${top}px;gap:${g}px;grid-template-columns:repeat(3,${c}px)">${W.list.map((x) => `<button class="btn ${x.id === W.active ? "pri" : ""}" style="height:${c}px;font-size:${Math.round(T.fsBig * 0.8)}px;gap:2px" data-act="switch" data-arg="${x.id}" aria-label="工作区 ${x.id}">${x.id}<small>${x.windows ? "●".repeat(Math.min(x.windows, 3)) : "空"}</small></button>`).join("")}</div>`;
+  },
+  handle(e, ctx) {
+    if (e.type !== "act") return;
+    const id = +e.arg; if (id === ctx.state.workspaces.active) return ctx.toast(`已在工作区 ${id}`);
+    ctx.toast(`工作区 ${id}`); ctx.optimistic({ workspaces: { active: id } }); ctx.cmd("switch", { id });
+  }
+};
+const QUICK = [["screenshot", "截图", "shot"], ["lock", "锁屏", "lock"], ["close", "关闭窗口", "close"], ["launcher", "启动器", "launch"]];
+const Quick = {
+  id: "quick", name: "快捷", icon: "bolt",
+  render(shell, v) {
+    if (shell === "phone") return `<div class="p-h">快捷</div><div class="qk-grid">${QUICK.map((q) => `<button class="btn" data-act="${q[0]}">${ic(q[2])}${q[1]}</button>`).join("")}</div>
+      <p class="qk-foot trunc">关闭窗口作用于：${esc(v.state.window.title || "（无）")}</p>`;
+    const c = T.btnPri, g = T.space * 4, W = 2 * c + g, o = 233 - W / 2;
+    return `<div class="o-grid" style="left:${o}px;top:${o}px;grid-template-columns:repeat(2,${c}px);gap:${g}px">${QUICK.map((q) => `<button class="btn" style="height:${c}px;border-radius:calc(var(--r) * 1.556)" data-act="${q[0]}">${ic(q[2])}<small>${q[1]}</small></button>`).join("")}</div>`;
+  },
+  handle(e, ctx) {
+    if (e.type !== "act") return; const q = QUICK.find((x) => x[0] === e.name); if (!q) return;
+    ctx.toast(q[0] === "close" ? `关闭 ${ctx.state.window.class || "窗口"}` : q[1]); ctx.cmd(q[0]);
+  }
+};
+const PTT_SAMPLES = ["暂停", "下一首", "音量调到30", "切到工作区3", "锁屏", "播放 周杰伦 晴天", "帮我把今天的会议整理成待办"];
+const TIER = { 1: "第1层 固定命令", 2: "第2层 带参数", 3: "第3层 Agent · 暂缓" };
+const Ptt = {
+  id: "ptt", name: "PTT", icon: "mic",
+  render(shell, v) {
+    const u = v.ui, rec = u.rec, res = u.res;
+    const secs = rec ? ((now() - rec) / 1000).toFixed(1) : null;
+    const ph = now() / 160;
+    const wave = `<div class="wave">${Array.from({ length: 9 }, (_, i) => `<i style="height:${rec ? Math.round(10 + 40 * Math.abs(Math.sin(ph + i * 0.8) * Math.cos(ph * 0.37 + i))) : 8}px"></i>`).join("")}</div>`;
+    const body = rec ? `${wave}<div style="text-align:center;font:600 var(--fs-body) var(--mono);color:var(--bad)">录音中 ${secs}s</div>`
+      : u.busy ? `<div class="ph">识别中…</div>`
+      : res ? `<div class="q">「${esc(res.text)}」</div><div><span class="tier t${res.tier}">${TIER[res.tier]}</span></div>
+          <div class="r">${res.tier === 3 ? "已记录，v1 不处理" : `${esc(res.action.module)}.${esc(res.action.action)} ${esc(Object.entries(res.action.args).map(([k, x]) => k + "=" + x).join(" "))} → ${res.result === "ok" ? "已执行" : esc(res.result)}`}</div>`
+      : `<div class="ph">按住下方按钮说话，松开发送。<br>示例：暂停 · 下一首 · 音量调到30 · 切到工作区3 · 锁屏 · 播放 周杰伦 晴天</div>`;
+    if (shell === "phone") return `<div class="p-h">按住说话</div><div class="pt-card">${body}</div>
+      <div class="pt-tiers"><span class="nw"><span class="tier t1">第1层</span> 固定命令</span>　<span class="nw"><span class="tier t2">第2层</span> 带参数/点歌</span>　<span class="nw"><span class="tier t3">第3层</span> Agent（v1 只记录）</span></div>
+      <button class="btn pt-hold ${rec ? "rec" : ""}" data-hold aria-label="按住说话">${ic("mic")}${rec ? "松开发送" : "按住说话"}</button>`;
+    const H = Math.round(T.btnPri * 1.5), hl = 233 - H / 2, ht = 256 - H / 2;
+    const top = rec ? `${wave}<div class="o-s" style="color:var(--bad);font-family:var(--mono)">录音中 ${secs}s</div>`
+      : u.busy ? `<div class="o-s">识别中…</div>`
+      : res ? `<div class="o-t trunc" style="padding:0 40px">「${esc(res.text)}」</div>` : `<div class="o-s">按住中心或 PTT 键</div>`;
+    return `<div class="o-abs" style="top:56px;padding:0 70px">${top}</div>
+      <button class="btn o-hold ${rec ? "pri" : ""}" data-hold style="position:absolute;left:${hl}px;top:${ht}px;width:${H}px;height:${H}px;border-radius:50%;font-size:var(--fs-title);font-weight:700;${rec ? "background:var(--bad);border-color:var(--bad);color:#fff" : ""}">${ic("mic")}${rec ? "松开发送" : "按住说话"}</button>
+      ${res && !rec && !u.busy ? `<div class="o-abs" style="top:${ht + H + 16}px"><span class="tier t${res.tier}">${TIER[res.tier]}</span></div>
+        <div class="o-abs o-s trunc" style="top:${ht + H + 52}px;padding:0 120px">${res.tier === 3 ? "已记录" : res.result === "ok" ? "已执行" : esc(res.result)}</div>` : ""}`;
+  },
+  handle(e, ctx) { if (e.type === "hold-down") ctx.pttDown(); else if (e.type === "hold-up") ctx.pttUp(); }
+};
+const MODULES = [NowPlaying, Workspaces, Quick, Ptt];
+const getMod = (id) => MODULES.find((m) => m.id === id);
+
+/* =====================================================================
+   INSTANCE · createSim(host, opt) —— 一份独立的外壳 + store + mock daemon + 手势
+   opt: {shell:'phone'|'orb', mod, player:'music'|'podcast'|'video'|'none', state:''|'rec', tag, log, scale()}
+   ===================================================================== */
+function createSim(host, opt) {
+  const timers = [];
+  const every = (f, ms) => { const id = setInterval(f, ms); timers.push(id); return id; };
+  const after = (f, ms) => { const id = setTimeout(f, ms); timers.push(id); return id; };
+  let alive = true;
+  const log = (kind, text) => alive && opt.log(kind, opt.tag, text);
+  const local = (msg) => log("loc", `[本地] ${msg}`);
+  const D = makeDaemon(every);
+  const LAT = 35;
+  const Transport = {
+    getState() { log("tx", "→ GET /state"); return new Promise((r) => after(() => { const s = D.state(); log("rx", "← 200 /state"); r(s); }, LAT)); },
+    connectWS(onMsg) { log("tx", "→ WS /ws  (Upgrade)"); D.sub((msg, quiet) => after(() => { if (!quiet) log("ws", `⇠ WS ${J(msg)}`); onMsg(msg); }, LAT)); },
+    cmd(module, action, args) {
+      const body = { module, action, args: args || {} };
+      log("tx", `→ POST /cmd ${J(body)}`);
+      return new Promise((r) => after(() => { const ex = D.exec(module, action, args); const res = typeof ex === "string" ? { ok: true, _exec: ex } : { ok: false, error: ex.error }; log(res.ok ? "rx" : "err", `← ${res.ok ? 200 : 409} ${J(res)}`); r(res); }, LAT));
+    },
+    ptt(text, ms) {
+      log("tx", `→ POST /ptt  audio=<opus ${(ms / 1000).toFixed(1)}s>  lang=zh-CN`);
+      return new Promise((r) => after(() => { const res = D.ptt(text); log(res.tier === 3 ? "loc" : "rx", `← 200 ${J(res)}`); r(res); }, 420));
+    }
+  };
+  const Store = { s: { connected: false, player: null, workspaces: { active: 1, list: [] }, window: { title: "", class: "" } }, subs: [],
+    apply(patch) { merge(this.s, patch); this.subs.forEach((f) => f()); },
+    optimistic(patch, why) { local(`乐观更新 ${J(patch)}${why ? "（" + why + "）" : ""}`); this.apply(patch); }, on(f) { this.subs.push(f); } };
+  const UI = { shell: opt.shell, mod: opt.mod, local: {} };
+  const modUI = (id) => (UI.local[id] = UI.local[id] || {});
+  let toastEl = null, toastT = 0, modEl, screenEl, tabsEl, dotsEl, root;
+  function toast(text, ms = 900) { if (!toastEl) return; toastEl.textContent = text; toastEl.classList.add("on"); clearTimeout(toastT); toastT = after(() => toastEl && toastEl.classList.remove("on"), ms); }
+  function haptic() { if (UI.shell === "phone" && navigator.vibrate) { try { navigator.vibrate(10); } catch (e) { /* 忽略 */ } } }
+  function makeCtx(m) {
+    return { state: Store.s, ui: modUI(m.id), shell: UI.shell, cmd: (action, args, module) => Transport.cmd(module || m.id, action, args),
+      optimistic: (p, why) => Store.optimistic(p, why), toast, haptic, local, render: () => render(), pttDown, pttUp };
+  }
+  function go(id) { if (UI.mod === id) return; UI.mod = id; local(`切换模块 → ${getMod(id).name}`); haptic(); render(); }
+  function step(d) { const i = MODULES.findIndex((m) => m.id === UI.mod); go(MODULES[(i + d + MODULES.length) % MODULES.length].id); }
+  function render() {
+    if (!alive) return;
+    const m = getMod(UI.mod);
+    modEl.innerHTML = m.render(UI.shell, { state: Store.s, ui: modUI(m.id) });
+    if (tabsEl) tabsEl.querySelectorAll("[data-tab]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.tab === UI.mod)));
+    if (dotsEl) dotsEl.innerHTML = MODULES.map((x) => `<i class="${x.id === UI.mod ? "on" : ""}"></i>`).join("");
+  }
+  let recTimer = 0, pttCycle = 0;
+  function startRecTimer() { clearInterval(recTimer); recTimer = every(() => UI.mod === "ptt" && render(), 100); }
+  function pttDown() {
+    const u = modUI("ptt"); if (u.rec || u.busy) return;
+    u.rec = now(); u.res = null; haptic(); local("开始录音（模拟）"); render(); startRecTimer();
+  }
+  function pttUp() {
+    const u = modUI("ptt"); if (!u.rec) return;
+    const ms = now() - u.rec; u.rec = null; clearInterval(recTimer); haptic();
+    if (ms < 300) { local(`录音 ${Math.round(ms)}ms < 300ms，丢弃`); toast("按住再说"); return render(); }
+    const pick = opt.pttPick(), text = pick === "__cycle" ? PTT_SAMPLES[pttCycle++ % PTT_SAMPLES.length] : pick;
+    u.busy = true; render();
+    Transport.ptt(text, ms).then((res) => { u.busy = false; u.res = res; haptic(); render(); });
+  }
+  // ---- 外壳
+  if (UI.shell === "phone") {
+    host.innerHTML = `<div class="inst" data-theme="${opt.theme}"><div class="phone"><div class="screen"><div class="ph-island"></div>
+      <div class="ph-status"><span>21:11</span><span><i class="dot"></i>X1 · 已连接</span></div>
+      <div class="ph-mod" data-mod></div>
+      <nav class="ph-tabs" data-tabs>${MODULES.map((m) => `<button data-tab="${m.id}">${ic(m.icon)}${esc(m.name)}</button>`).join("")}</nav>
+      <div class="ph-home"></div><div class="toast ph-toast"></div></div></div></div>`;
+  } else {
+    host.innerHTML = `<div class="inst" data-theme="${opt.theme}"><div class="orb"><div class="orb-ring"><div class="screen"><div class="orb-mod" data-mod></div>
+      <div class="orb-dots" data-dots></div><div class="toast orb-toast"></div></div></div>
+      <div class="hw"><button data-hw="prev">◀ 上一模块</button><button data-hw="ptt">● PTT 键（按住）</button><button data-hw="next">下一模块 ▶</button></div></div></div>`;
+  }
+  root = host.firstElementChild;
+  const q = (s) => root.querySelector(s);
+  screenEl = q(".screen"); modEl = q("[data-mod]"); tabsEl = q("[data-tabs]"); dotsEl = q("[data-dots]"); toastEl = q(".toast");
+  if (tabsEl) tabsEl.onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) go(b.dataset.tab); };
+  if (UI.shell === "orb") {
+    q('[data-hw="prev"]').onclick = () => { local("实体键：上一模块"); step(-1); };
+    q('[data-hw="next"]').onclick = () => { local("实体键：下一模块"); step(1); };
+    const k = q('[data-hw="ptt"]');
+    k.addEventListener("pointerdown", (e) => { e.preventDefault(); try { k.setPointerCapture(e.pointerId); } catch (x) { /* 合成事件 */ } k.classList.add("rec"); local("实体 PTT 键按下"); if (UI.mod !== "ptt") go("ptt"); pttDown(); });
+    const up = () => { if (!k.classList.contains("rec")) return; k.classList.remove("rec"); pttUp(); };
+    k.addEventListener("pointerup", up); k.addEventListener("pointercancel", up);
+  }
+  // ---- 指针（同 v3；坐标除以画布缩放）
+  let engine = null, ptr = null, lpTimer = 0;
+  const xy = (e) => { const z = opt.scale(); return [e.clientX / z, e.clientY / z]; };
+  screenEl.addEventListener("pointerdown", (e) => {
+    if (ptr) return;
+    const t = e.target, act = t.closest("[data-act]"), hold = t.closest("[data-hold]"), pad = t.closest("[data-pad]");
+    const m = getMod(UI.mod), [x, y] = xy(e);
+    if (hold || act || pad) { try { screenEl.setPointerCapture(e.pointerId); } catch (x2) { /* 合成事件 */ } }
+    if (hold) { ptr = { kind: "hold", id: e.pointerId }; m.handle({ type: "hold-down" }, makeCtx(m)); return; }
+    if (act) { ptr = { kind: "act", id: e.pointerId, x, y, name: act.dataset.act, arg: act.dataset.arg }; act.classList.add("press"); return; }
+    if (pad) {
+      ptr = { kind: "pad", id: e.pointerId };
+      engine = createGestureEngine({}, (ev) => m.handle(Object.assign({ gesture: true }, ev), makeCtx(m)));
+      engine.down(x, y, now()); clearTimeout(lpTimer); lpTimer = after(() => engine && engine.tick(now()), GESTURE_CFG.longMs + 5);
+    }
+  });
+  screenEl.addEventListener("pointermove", (e) => { if (ptr && ptr.kind === "pad" && engine) { const [x, y] = xy(e); engine.move(x, y, now()); } });
+  const end = (e, cancel) => {
+    if (!ptr || e.pointerId !== ptr.id) return;
+    const p = ptr; ptr = null; clearTimeout(lpTimer); const m = getMod(UI.mod);
+    if (p.kind === "hold") m.handle({ type: "hold-up" }, makeCtx(m));
+    else if (p.kind === "act") { const [x, y] = xy(e); if (!cancel && Math.hypot(x - p.x, y - p.y) < 16) { haptic(); m.handle({ type: "act", name: p.name, arg: p.arg }, makeCtx(m)); } render(); }
+    else if (p.kind === "pad" && engine) { const [x, y] = xy(e); cancel ? engine.cancel() : engine.up(x, y, now()); engine = null; }
+  };
+  screenEl.addEventListener("pointerup", (e) => end(e, false));
+  screenEl.addEventListener("pointercancel", (e) => end(e, true));
+  Store.on(() => { if (!(ptr && ptr.kind === "pad" && UI.mod === "nowplaying" && modUI("nowplaying").scrub != null)) render(); });
+  // ---- 启动
+  if (opt.player && opt.player !== "music") D.setKind(opt.player);
+  Store.s = Object.assign(Store.s, D.state(), { connected: true }); // 首帧即有内容，随后照 v3 走 GET /state + WS
+  render();
+  Transport.getState().then((s) => { Store.apply(Object.assign(s, { connected: true })); Transport.connectWS((msg) => msg.type === "patch" && Store.apply(msg.data)); });
+  if (opt.state === "rec" && UI.mod === "ptt") { modUI("ptt").rec = now() - 2400; startRecTimer(); render(); }
+  return {
+    render, setPlayer: (k) => { log("loc", `[模拟] 播放器 → ${k}`); D.setKind(k); },
+    destroy() { alive = false; timers.forEach((id) => { clearInterval(id); clearTimeout(id); }); host.innerHTML = ""; }
+  };
+}
+
+/* =====================================================================
+   画布：两主题 × (手机 6 + 圆屏 4) = 20 个实例
+   ===================================================================== */
+const PHONE_BOARDS = [
+  { mod: "nowplaying", player: "music", title: "正在播放", pick: true },
+  { mod: "nowplaying", player: "none", title: "正在播放 · 空状态" },
+  { mod: "workspaces", title: "工作区" },
+  { mod: "quick", title: "快捷" },
+  { mod: "ptt", title: "PTT" },
+  { mod: "ptt", state: "rec", title: "PTT · 录音中" }
+];
+const ORB_BOARDS = [
+  { mod: "nowplaying", player: "music", title: "正在播放", pick: true },
+  { mod: "workspaces", title: "工作区" },
+  { mod: "quick", title: "快捷" },
+  { mod: "ptt", title: "PTT" }
+];
+const THEMES = [["tokyo", "深色 · Tokyo Night"], ["light", "浅色 · Tokyo Night Day"]];
+const DIM = { phone: [414, 868], orb: [520, 566] };
+let Z = 0.4;
+const boards = []; // {id, el, host, cfg, inst}
+const canvas = $("canvas");
+const logEl = $("log");
+function logLine(kind, tag, text) {
+  const d = new Date(), ts = d.toTimeString().slice(0, 8);
+  const line = document.createElement("div"); line.className = kind;
+  line.innerHTML = `${ts} <i>[${esc(tag)}]</i> ${esc(text)}`;
+  logEl.appendChild(line); while (logEl.childNodes.length > 250) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function mountBoard(b) {
+  if (b.inst) b.inst.destroy();
+  b.inst = createSim(b.host, { shell: b.shell, mod: b.cfg.mod, player: b.player || b.cfg.player, state: b.cfg.state, theme: b.theme, tag: b.tag,
+    log: logLine, scale: () => Z, pttPick: () => $("pttPick").value });
+}
+function buildCanvas() {
+  canvas.innerHTML = THEMES.map(([th, name]) => `<section class="band" data-theme="${th}"><h2>${name}</h2>
+    ${[["phone", "手机 PWA · 390×844", PHONE_BOARDS], ["orb", "圆屏 ESP32 · 466×466", ORB_BOARDS]].map(([sh, lab, list]) => `<div class="row"><div class="rowlab">${lab}</div>
+      ${list.map((c, i) => { const id = `${th}-${sh}-${i}`; return `<figure class="board" data-board="${id}" style="width:${DIM[sh][0]}px">
+        <figcaption class="bh"><span class="bt">${sh === "phone" ? "手机" : "圆屏"}｜${c.title}</span><span class="bc">
+        ${c.pick ? `<select data-player title="模拟 X1 上的播放器"><option value="music">音乐</option><option value="podcast">播客</option><option value="video">视频</option><option value="none">无</option></select>` : ""}
+        <button data-reset title="复位此画板（重建实例）" aria-label="复位">↺</button></span></figcaption>
+        <div class="devhost" style="width:${DIM[sh][0]}px;height:${DIM[sh][1]}px"></div></figure>`; }).join("")}</div>`).join("")}</section>`).join("");
+  canvas.querySelectorAll(".board").forEach((el) => {
+    const [th, sh, i] = el.dataset.board.split("-"), cfg = (sh === "phone" ? PHONE_BOARDS : ORB_BOARDS)[+i];
+    const b = { id: el.dataset.board, el, host: el.querySelector(".devhost"), cfg, theme: th, shell: sh, player: cfg.player,
+      tag: `${th === "tokyo" ? "深" : "浅"}·${sh === "phone" ? "手机" : "圆屏"}·${cfg.title}` };
+    boards.push(b); mountBoard(b);
+    el.querySelector("[data-reset]").onclick = () => { b.player = cfg.player; const s = el.querySelector("[data-player]"); if (s) s.value = cfg.player; mountBoard(b); };
+    const s = el.querySelector("[data-player]"); if (s) s.onchange = () => { b.player = s.value; b.inst.setPlayer(s.value); };
+  });
+}
+
+/* ---------- 缩放 ---------- */
+const vp = $("vp"), sizer = $("sizer");
+function setZoom(z, anchor) {
+  z = clamp(Math.round(z * 100) / 100, 0.15, 1.5);
+  const oldZ = Z, ax = anchor ? anchor[0] : vp.clientWidth / 2, ay = anchor ? anchor[1] : 0;
+  const cx = (vp.scrollLeft + ax) / oldZ, cy = (vp.scrollTop + ay) / oldZ;
+  Z = z; document.documentElement.style.setProperty("--z", z);
+  canvas.style.transform = `scale(${z})`;
+  sizer.style.width = canvas.offsetWidth * z + "px"; sizer.style.height = canvas.offsetHeight * z + "px";
+  $("zoom").value = Math.round(z * 100); $("zv").textContent = Math.round(z * 100) + "%";
+  if (anchor) { vp.scrollLeft = cx * z - ax; vp.scrollTop = cy * z - ay; }
+}
+function fit(all) {
+  for (let k = 0; k < 3; k++) { // 标题字号随缩放变化 → 迭代几次求稳定
+    const zw = (vp.clientWidth - 8) / canvas.offsetWidth, zh = (vp.clientHeight - 8) / canvas.offsetHeight;
+    setZoom(all ? Math.min(zw, zh) : zw);
+  }
+  vp.scrollLeft = 0; vp.scrollTop = 0;
+}
+$("zoom").oninput = (e) => setZoom(+e.target.value / 100);
+$("bFitW").onclick = () => fit(false); $("bFitAll").onclick = () => fit(true); $("bZ100").onclick = () => setZoom(1);
+vp.addEventListener("wheel", (e) => { if (!e.ctrlKey) return; e.preventDefault(); const r = vp.getBoundingClientRect(); setZoom(Z * (e.deltaY < 0 ? 1.1 : 1 / 1.1), [e.clientX - r.left, e.clientY - r.top]); }, { passive: false });
+window.addEventListener("resize", () => setZoom(Z));
+
+/* =====================================================================
+   令牌 → CSS 变量 / 侧栏
+   ===================================================================== */
+const HEX = /^#[0-9a-fA-F]{6}$/;
+function normalize(src) {
+  const out = DEFAULTS(), notes = [];
+  const th = src && isObj(src.themes) ? src.themes : {};
+  for (const t of Object.keys(out.themes)) for (const [k] of COLOR_KEYS) {
+    const v = th[t] && th[t][k]; if (v == null) continue;
+    if (typeof v === "string" && HEX.test(v.trim())) out.themes[t][k] = v.trim().toLowerCase(); else notes.push(`${t}.${k} 非法颜色，已用默认`);
+  }
+  const sz = src && isObj(src.size) ? src.size : {};
+  for (const [k, , , min, max] of SIZE_DEF) {
+    if (sz[k] == null) continue; const n = Number(sz[k]);
+    if (!isFinite(n)) { notes.push(`${k} 不是数字，已用默认`); continue; }
+    const c = clamp(Math.round(n), min, max); if (c !== n) notes.push(`${k}=${sz[k]} 超出 ${min}–${max}，已夹到 ${c}`); out.size[k] = c;
+  }
+  if (out.size.btnPri < out.size.touch) { notes.push(`主按钮 ${out.size.btnPri} < 触控区，已提升到 ${out.size.touch}`); out.size.btnPri = out.size.touch; }
+  return { tok: out, notes };
+}
+function exportObj() {
+  return { name: "omarchy-orb-tokens", version: 1, source: "Omarchy Orb v3 调参台", unit: "px（以 466×466 逻辑像素为基准）", savedAt: new Date().toISOString(),
+    themes: TOK.themes, size: TOK.size,
+    limits: Object.fromEntries(SIZE_DEF.map(([k, , , min, max, hard]) => [k, { min, max, hardFloor: hard }])) };
+}
+function applyVars() {
+  let css = "";
+  for (const t of Object.keys(TOK.themes)) css += `[data-theme="${t}"]{${Object.entries(TOK.themes[t]).map(([k, v]) => `--${k}:${v}`).join(";")};--shadow:${SHADOW[t]}}\n`;
+  const s = TOK.size;
+  css += `:root{--r:${s.radius}px;--sp:${s.space}px;--fs-body:${s.fsBody}px;--fs-title:${s.fsTitle}px;--fs-big:${s.fsBig}px;--btn-pri:${s.btnPri}px;--touch:${s.touch}px;--ic:${s.icon}px;--bar:${s.barPhone}px;--ring:${s.ringOrb}px}`;
+  $("tokvars").textContent = css;
+  Object.assign(T, s);
+}
+let saveT = 0;
+function persist() {
+  clearTimeout(saveT);
+  saveT = setTimeout(() => { try { localStorage.setItem(LS_KEY, J(exportObj())); $("saveState").textContent = `已自动保存到本机 · ${new Date().toTimeString().slice(0, 8)}`; } catch (e) { $("saveState").textContent = "本机自动保存不可用（浏览器限制）"; } }, 250);
+}
+function onTokens(sizeChanged) {
+  applyVars(); persist();
+  if (sizeChanged) { boards.forEach((b) => b.inst && b.inst.render()); requestAnimationFrame(() => setZoom(Z)); }
+}
+function buildSide() {
+  $("colorTbl").innerHTML = `<tr><th>令牌</th><th>深色</th><th>浅色</th></tr>` + COLOR_KEYS.map(([k, lab]) => `<tr><td class="lab">${lab}<code>${k}</code></td>
+    ${["tokyo", "light"].map((t) => `<td><div class="cc"><input type="color" data-t="${t}" data-k="${k}" aria-label="${lab} ${t}"><input type="text" data-t="${t}" data-k="${k}" maxlength="7" aria-label="${lab} ${t} 十六进制"></div></td>`).join("")}</tr>`).join("");
+  $("sizeBox").innerHTML = SIZE_DEF.map(([k, lab, def, min, max, hard, note]) => `<div class="sz" title="${esc(note)}"><label for="n-${k}">${lab}${hard ? `<span class="lock">锁 ≥${min}</span>` : ""}<small>默认 ${def}</small></label>
+    <input type="number" id="n-${k}" data-s="${k}" min="${min}" max="${max}" step="1"><input type="range" data-s="${k}" min="${min}" max="${max}" step="1" aria-label="${lab}"></div>`).join("");
+  $("colorTbl").addEventListener("input", (e) => {
+    const el = e.target, t = el.dataset.t, k = el.dataset.k; if (!t) return;
+    let v = el.value.trim(); if (el.type === "text") { if (!v.startsWith("#")) v = "#" + v; if (!HEX.test(v)) { el.classList.add("bad"); return; } el.classList.remove("bad"); }
+    TOK.themes[t][k] = v.toLowerCase(); syncSide(); onTokens(false);
+  });
+  $("sizeBox").addEventListener("input", (e) => {
+    const el = e.target, k = el.dataset.s; if (!k) return;
+    const d = SIZE_DEF.find((x) => x[0] === k); let n = Number(el.value);
+    if (el.type === "number" && (el.value === "" || !isFinite(n))) return;
+    if (el.type === "number" && (n < d[3] || n > d[4])) return; // 输入中途不打断；失焦时夹紧
+    TOK.size[k] = Math.round(n);
+    if (k === "touch" && TOK.size.btnPri < TOK.size.touch) TOK.size.btnPri = TOK.size.touch;
+    if (k === "btnPri" && TOK.size.btnPri < TOK.size.touch) TOK.size.btnPri = TOK.size.touch;
+    syncSide(el); onTokens(true);
+  });
+  $("sizeBox").addEventListener("change", (e) => { const el = e.target, k = el.dataset.s; if (!k || el.type !== "number") return; const d = SIZE_DEF.find((x) => x[0] === k); TOK.size[k] = clamp(Math.round(Number(el.value) || d[2]), d[3], d[4]); if (TOK.size.btnPri < TOK.size.touch) TOK.size.btnPri = TOK.size.touch; syncSide(); onTokens(true); });
+  $("pttPick").innerHTML = `<option value="__cycle">轮换示例句</option>` + PTT_SAMPLES.map((s) => `<option>${esc(s)}</option>`).join("");
+}
+function syncSide(except) {
+  document.querySelectorAll("#colorTbl input").forEach((el) => { if (el === document.activeElement && el.type === "text") return; el.value = TOK.themes[el.dataset.t][el.dataset.k]; el.classList.remove("bad"); });
+  document.querySelectorAll("#sizeBox input").forEach((el) => { if (el !== except) el.value = TOK.size[el.dataset.s]; });
+}
+
+/* ---------- 操作：保存 / 导出 / 复制 / 导入 / 重置 ---------- */
+const pretty = () => JSON.stringify(exportObj(), null, 2);
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {
+    const ta = document.createElement("textarea"); ta.value = text; ta.style.cssText = "position:fixed;left:-9999px"; document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch (x) { ok = false; } ta.remove(); return ok;
+  }
+}
+const flash = (t) => { $("saveState").textContent = t; };
+function openModal(mode) {
+  const imp = mode === "import";
+  $("mTitle").textContent = imp ? "从 JSON 导入令牌" : "当前令牌 JSON";
+  $("mDesc").textContent = imp ? "粘贴 tokens.json 内容后点「应用导入」。缺省字段用 v3 默认，超出范围的值会夹到上下限（硬下限不可突破）。" : "离线可用：全选复制即可保存（也已自动存入本机 localStorage）。";
+  $("mText").value = imp ? "" : pretty(); $("mText").readOnly = !imp;
+  $("mApply").style.display = imp ? "" : "none"; $("mCopy").style.display = imp ? "none" : "";
+  $("mMsg").textContent = ""; $("mMsg").className = "msg"; $("modal").classList.add("on");
+  setTimeout(() => { $("mText").focus(); if (!imp) $("mText").select(); }, 0);
+}
+$("mClose").onclick = () => $("modal").classList.remove("on");
+$("modal").addEventListener("click", (e) => { if (e.target.id === "modal") $("modal").classList.remove("on"); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("modal").classList.remove("on"); });
+$("mCopy").onclick = async () => { const ok = await copyText($("mText").value); $("mMsg").textContent = ok ? "已复制" : "复制失败，请手动全选复制"; };
+$("mApply").onclick = () => {
+  let obj; try { obj = JSON.parse($("mText").value); } catch (e) { $("mMsg").textContent = "JSON 解析失败：" + e.message; $("mMsg").className = "msg err"; return; }
+  if (!isObj(obj) || (!isObj(obj.themes) && !isObj(obj.size))) { $("mMsg").textContent = "缺少 themes 或 size 字段"; $("mMsg").className = "msg err"; return; }
+  const { tok, notes } = normalize(obj); TOK = tok; syncSide(); onTokens(true);
+  $("mMsg").className = "msg"; $("mMsg").textContent = notes.length ? `已导入（${notes.length} 处修正：${notes.slice(0, 3).join("；")}${notes.length > 3 ? "…" : ""}）` : "已导入";
+};
+$("bSave").onclick = () => { persist(); openModal("save"); };
+$("bImport").onclick = () => openModal("import");
+$("bCopy").onclick = async () => flash((await copyText(pretty())) ? "JSON 已复制到剪贴板" : "复制失败，请用「保存」弹窗手动复制");
+$("bExport").onclick = () => {
+  const url = URL.createObjectURL(new Blob([pretty()], { type: "application/json" }));
+  const a = document.createElement("a"); a.href = url; a.download = "tokens.json"; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000); flash("已导出 tokens.json");
+};
+$("bReset").onclick = () => { if (!confirm("把所有令牌重置为 v3 默认？")) return; TOK = DEFAULTS(); syncSide(); onTokens(true); flash("已重置为 v3 默认"); };
+$("bClearLog").onclick = () => { logEl.textContent = ""; };
+$("bMinLog").onclick = (e) => { const w = $("logwrap"); w.classList.toggle("min"); e.target.textContent = w.classList.contains("min") ? "展开" : "收起"; };
+
+/* ---------- 启动 ---------- */
+try { const raw = localStorage.getItem(LS_KEY); if (raw) { const r = normalize(JSON.parse(raw)); TOK = r.tok; } } catch (e) { /* 忽略损坏的本机存档 */ }
+buildSide(); syncSide(); applyVars(); buildCanvas();
+requestAnimationFrame(() => fit(false));
+window.__tuner = { get tokens() { return TOK; }, setTokens(o) { const r = normalize(o); TOK = r.tok; syncSide(); onTokens(true); return r.notes; }, boards, setZoom, fit, get zoom() { return Z; } };
+})();
+</script>
+</body>
+</html>
