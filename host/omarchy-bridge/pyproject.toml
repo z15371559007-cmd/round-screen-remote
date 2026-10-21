@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "round-remote-bridge"
+version = "0.1.0"
+description = "Local MPRIS/WebSocket bridge scaffold for the ESP32 round-screen remote"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1"]
+
+[project.scripts]
+round-bridge = "round_bridge.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
