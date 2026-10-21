@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Omarchy Orb v3 · 交互模拟器（手机 PWA / 圆屏 ESP32）</title>
+<style>
+/* ===================== SKIN：只定义 CSS 变量，内容与主题分离 ===================== */
+:root{--sans:"PingFang SC","HarmonyOS Sans SC","MiSans","Noto Sans CJK SC","Source Han Sans SC","Microsoft YaHei",system-ui,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono","PingFang SC","Noto Sans CJK SC","Microsoft YaHei",monospace;--ease:cubic-bezier(.2,.8,.2,1)}
+:root,[data-theme="tokyo"]{--bg:#0b0b10;--panel:#11121a;--pline:#1f2335;--scr:#1a1b26;--fg:#c0caf5;--sub:#9aa5ce;--mut:#565f89;--acc:#7aa2f7;--acc2:#bb9af7;--on-acc:#11121a;--btn:#24283b;--line:#2f334d;--trk:#2f334d;--ok:#9ece6a;--warn:#e0af68;--bad:#f7768e;--frame:#2b2d3a;--shadow:#000c}
+[data-theme="light"]{--bg:#d5d6db;--panel:#ecedf1;--pline:#c4c8da;--scr:#e1e2e7;--fg:#343b58;--sub:#4c5578;--mut:#8990b3;--acc:#2e7de9;--acc2:#9854f1;--on-acc:#ffffff;--btn:#f4f5f8;--line:#c4c8da;--trk:#c4c8da;--ok:#587539;--warn:#8c6c3e;--bad:#c64343;--frame:#9699a8;--shadow:#0004}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+button{font-family:inherit;color:inherit}
+/* ---------- 模拟器外壳外的控制台 ---------- */
+.sim{min-height:100vh;padding:14px 12px 28px;display:flex;flex-direction:column;gap:12px;align-items:center}
+.sim-bar{width:min(1180px,100%);display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;background:var(--panel);border:1px solid var(--pline);border-radius:12px;padding:10px 14px}
+.sim-bar h1{font-size:13px;margin:0 8px 0 0;color:var(--sub);letter-spacing:.06em;font-weight:600}
+.grp{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--sub)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg button{background:var(--btn);border:0;padding:0 12px;min-height:34px;font-size:13px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--acc);color:var(--on-acc)}
+select{background:var(--btn);color:var(--fg);border:1px solid var(--line);border-radius:8px;min-height:34px;font:13px var(--sans);padding:0 6px}
+.stage{width:min(1180px,100%);display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;justify-content:center}
+.devwrap{flex:none;position:relative}
+.dev{transform-origin:0 0;position:absolute;left:0;top:0}
+.logbox{flex:1 1 360px;min-width:300px;max-width:560px;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--pline);border-radius:12px;overflow:hidden}
+.loghead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-bottom:1px solid var(--pline);font-size:13px;color:var(--sub)}
+.loghead label{display:flex;gap:4px;align-items:center}
+.loghead button{background:var(--btn);border:1px solid var(--line);border-radius:8px;min-height:30px;padding:0 10px;cursor:pointer;font-size:12px}
+#log{margin:0;padding:8px 12px;font:11.5px/1.55 var(--mono);height:560px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+#log .tx{color:var(--acc)}#log .rx{color:var(--ok)}#log .loc{color:var(--mut)}#log .ws{color:var(--acc2)}#log .err{color:var(--bad)}
+.legend{font-size:12px;color:var(--sub);padding:8px 12px;border-top:1px solid var(--pline);line-height:1.6}
+.legend code{font-family:var(--mono);color:var(--acc)}
+
+/* ---------- 共用：设备屏幕内 ---------- */
+.screen{position:relative;overflow:hidden;background:var(--scr);color:var(--fg);touch-action:none;user-select:none;-webkit-user-select:none}
+.toast{position:absolute;left:50%;transform:translate(-50%,0) scale(.9);opacity:0;pointer-events:none;background:color-mix(in srgb,var(--scr) 30%,#000 70%);color:#fff;border:2px solid var(--acc);border-radius:999px;padding:10px 22px;font-size:22px;font-weight:600;white-space:nowrap;transition:opacity .15s,transform .15s var(--ease);z-index:20}
+.toast.on{opacity:1;transform:translate(-50%,0) scale(1)}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--acc);color:var(--acc);border-radius:999px;padding:3px 12px;font-size:14px;white-space:nowrap}
+.btn{background:var(--btn);border:1px solid var(--line);border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.btn:active,.btn.press{border-color:var(--acc);transform:scale(.97)}
+.btn.pri{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}
+.ic{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.ic .f{fill:currentColor;stroke:none}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:6px;border-radius:3px;background:var(--trk);position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;background:var(--acc);border-radius:3px}
+.bar>i.ghost{background:var(--acc2);opacity:.55}
+.wave{display:flex;gap:5px;align-items:center;justify-content:center;height:56px}
+.wave i{width:6px;border-radius:3px;background:var(--bad);transition:height .1s linear}
+.tier{display:inline-block;border-radius:8px;padding:3px 10px;font-size:14px;font-weight:600}
+.tier.t1{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok)}
+.tier.t2{background:color-mix(in srgb,var(--acc) 22%,transparent);color:var(--acc)}
+.tier.t3{background:color-mix(in srgb,var(--warn) 22%,transparent);color:var(--warn)}
+.cover{border-radius:20px;display:flex;align-items:center;justify-content:center;color:#fff8;box-shadow:0 18px 40px #0005}
+.cover .ic{width:56px;height:56px}
+
+/* ---------- 外壳 A：手机 390×844 ---------- */
+.phone{width:414px;height:868px;border-radius:56px;background:var(--frame);padding:12px;box-shadow:0 0 0 1px #0006,0 24px 60px var(--shadow)}
+.phone .screen{width:390px;height:844px;border-radius:44px;display:flex;flex-direction:column}
+.ph-status{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:6px 28px 0;font-size:14px;font-weight:600}
+.ph-status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px}
+.ph-island{position:absolute;left:50%;top:10px;width:110px;height:30px;margin-left:-55px;background:#000;border-radius:16px}
+.ph-mod{flex:1;position:relative;overflow:hidden}
+.ph-tabs{height:84px;flex:none;display:flex;border-top:1px solid var(--line);padding:0 8px 22px;background:color-mix(in srgb,var(--scr) 85%,var(--btn))}
+.ph-tabs button{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;color:var(--mut);cursor:pointer;min-height:56px}
+.ph-tabs button[aria-current="true"]{color:var(--acc)}
+.ph-home{position:absolute;left:50%;bottom:8px;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:var(--fg);opacity:.5}
+.ph-toast{top:150px}
+.p-h{font-size:22px;font-weight:700;margin:6px 20px 12px}
+/* 正在播放（手机） */
+.np-pad{position:absolute;left:0;right:0;top:0;height:466px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;cursor:grab}
+.np-pad .cover{width:236px;height:236px}
+.np-pad .chip{position:absolute;left:20px;top:8px}
+.np-pad .hint{position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:12px;color:var(--mut)}
+.np-pad .scrub{font-size:30px;font-weight:700;color:var(--acc2);height:36px}
+.np-info{position:absolute;left:0;right:0;top:466px;bottom:0;padding:0 24px;display:flex;flex-direction:column;gap:10px}
+.np-title{font-size:22px;font-weight:700}
+.np-artist{font-size:15px;color:var(--sub);margin-top:-6px}
+.np-time{display:flex;justify-content:space-between;font:12px var(--mono);color:var(--sub);margin-top:4px}
+.np-vol{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--sub)}
+.np-vol .bar{flex:1}
+.np-ctl{display:flex;justify-content:center;gap:28px;margin-top:2px}
+.np-ctl .btn{width:64px;height:64px;border-radius:50%}
+.np-ctl .btn.pri{width:72px;height:72px}
+.np-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:0 28px}
+.np-empty p{margin:0 0 8px;color:var(--sub);font-size:15px}
+.np-empty .btn{width:100%;height:84px;flex-direction:row;gap:14px;font-size:20px;font-weight:600}
+/* 工作区（手机） */
+.ws-cur{margin:0 20px 16px;padding:14px 16px;border:1px solid var(--line);border-radius:16px;background:var(--btn)}
+.ws-cur small{display:block;color:var(--mut);font-size:12px;margin-bottom:4px}
+.ws-cur b{display:block;font-size:17px}
+.ws-cur span{font-size:13px;color:var(--sub)}
+.ws-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:0 20px}
+.ws-grid .btn{height:104px;font-size:30px;font-weight:700;position:relative}
+.ws-grid .btn small{font-size:12px;font-weight:400;color:var(--sub)}
+.ws-grid .btn.pri small{color:var(--on-acc)}
+/* 快捷（手机） */
+.qk-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:8px 20px}
+.qk-grid .btn{height:170px;font-size:18px;font-weight:600}
+.qk-grid .ic{width:44px;height:44px}
+/* PTT（手机） */
+.pt-card{margin:0 20px;min-height:190px;border:1px solid var(--line);border-radius:18px;background:var(--btn);padding:16px;display:flex;flex-direction:column;gap:10px}
+.pt-card .q{font-size:20px;font-weight:600}
+.pt-card .r{font-size:14px;color:var(--sub)}
+.pt-card .ph{color:var(--mut);font-size:15px}
+.pt-hold{position:absolute;left:50%;bottom:28px;width:168px;height:168px;margin-left:-84px;border-radius:50%;font-size:18px;font-weight:700}
+.pt-hold .ic{width:48px;height:48px}
+.pt-hold.rec{background:var(--bad);border-color:var(--bad);color:#fff;transform:scale(1.06)}
+.pt-tiers{margin:14px 20px 0;font-size:12px;color:var(--sub);line-height:1.9}
+
+/* ---------- 外壳 B：圆屏 ESP32 466×466 ---------- */
+.orb{width:520px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.orb-ring{width:490px;height:490px;border-radius:50%;background:var(--frame);padding:12px;box-shadow:0 0 0 1px #0006,0 24px 60px var(--shadow)}
+.orb .screen{width:466px;height:466px;border-radius:50%;background:#000}
+[data-theme="light"] .orb .screen{background:var(--scr)}
+.orb-mod{position:absolute;inset:0}
+.orb-toast{top:206px}
+.orb-dots{position:absolute;left:0;right:0;bottom:22px;display:flex;justify-content:center;gap:10px;pointer-events:none}
+.orb-dots i{width:8px;height:8px;border-radius:50%;background:var(--mut)}
+.orb-dots i.on{background:var(--acc);width:22px;border-radius:4px}
+.hw{display:flex;gap:12px}
+.hw button{min-height:48px;padding:0 16px;border-radius:12px;background:var(--btn);border:1px solid var(--line);font-size:14px;cursor:pointer}
+.hw button.rec{background:var(--bad);color:#fff}
+.o-abs{position:absolute;left:0;right:0;text-align:center}
+.o-t{font-size:22px;font-weight:700}.o-s{font-size:20px;color:var(--sub)}
+.o-pad{position:absolute;inset:0;border-radius:50%;cursor:grab}
+.o-grid{position:absolute;display:grid;gap:12px}
+.o-grid .btn{font-size:24px;font-weight:700}
+.o-grid .btn small{font-size:20px;font-weight:600}
+.o-grid .btn .ic{width:40px;height:40px}
+svg.o-ring{position:absolute;inset:0;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="sim">
+  <div class="sim-bar" role="toolbar" aria-label="模拟器控制">
+    <h1>OMARCHY ORB · v3 交互模拟器</h1>
+    <div class="grp">外壳<span class="seg" id="segShell"><button data-v="phone">手机</button><button data-v="orb">圆屏 ESP32</button></span></div>
+    <div class="grp">主题<span class="seg" id="segTheme"><button data-v="tokyo">Tokyo Night</button><button data-v="light">浅色</button></span></div>
+    <div class="grp">模拟播放器<span class="seg" id="segPlayer"><button data-v="music">音乐</button><button data-v="podcast">播客</button><button data-v="video">视频</button><button data-v="none">无播放器</button></span></div>
+    <div class="grp">下次 PTT 说<select id="pttPick"></select></div>
+  </div>
+  <div class="stage">
+    <div class="devwrap" id="devwrap"><div class="dev" id="dev"></div></div>
+    <section class="logbox" aria-label="命令日志">
+      <div class="loghead"><b>命令日志（真实将发送的 JSON）</b><span><label><input type="checkbox" id="showTick">显示进度推送</label> <button id="clearLog">清空</button></span></div>
+      <pre id="log" aria-live="polite"></pre>
+      <div class="legend"><code>→</code> 手机/圆屏发往 X1 remote-daemon :8767　<code>←</code> 响应　<code>⇠ WS</code> /ws 增量推送　<code>[本地]</code> 不出网的本地行为（乐观更新、震动、提示）。daemon 为页内 mock，<code>_exec</code> 仅示意 daemon 将执行的命令。</div>
+    </section>
+  </div>
+</div>
+<script>
+(() => {
+"use strict";
+/* =====================================================================
+   CORE · util
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const fmt = (s) => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, "0"); return h ? `${h}:${String(m).padStart(2, "0")}:${x}` : `${m}:${x}`; };
+const now = () => performance.now();
+const isObj = (o) => o && typeof o === "object" && !Array.isArray(o);
+const merge = (dst, patch) => { for (const k in patch) { const v = patch[k]; if (v === null) dst[k] = null; else if (isObj(v) && isObj(dst[k])) merge(dst[k], v); else dst[k] = isObj(v) ? JSON.parse(JSON.stringify(v)) : v; } return dst; };
+const hue = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.codePointAt(0)) % 360; return h; };
+const ICON = {
+  play: '<path class="f" d="M8 5l12 7-12 7z"/>', pause: '<path class="f" d="M7 5h4v14H7zM13 5h4v14h-4z"/>',
+  next: '<path class="f" d="M5 6l9 6-9 6z"/><path d="M18 6v12"/>', prev: '<path class="f" d="M19 6l-9 6 9 6z"/><path d="M6 6v12"/>',
+  fwd: '<path d="M13 5a7 7 0 1 1-7 7"/><path d="M13 2v6h-0"/><path d="M10 2l3 3-3 3"/>', back: '<path d="M11 5a7 7 0 1 0 7 7"/><path d="M14 2l-3 3 3 3"/>',
+  vol: '<path class="f" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>', mute: '<path class="f" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9l5 6M21 9l-5 6"/>',
+  music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+  podcast: '<rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/>',
+  video: '<rect x="3" y="5" width="14" height="14" rx="2"/><path d="M17 10l4-3v10l-4-3"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>', mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
+  shot: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  close: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 10l6 6M15 10l-6 6"/>',
+  launch: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>', wave: '<path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/>'
+};
+const ic = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[n] || ""}</svg>`;
+
+/* =====================================================================
+   CORE · gesture engine（纯逻辑，无 DOM；测试脚本按标记提取）
+   规则：只看方向——首个 lockPx 位移决定主轴并锁定；不分左右区。
+   ===================================================================== */
+/*<GESTURE>*/
+const GESTURE_CFG = { lockPx: 12, longMs: 600, flickMaxMs: 280, flickMinV: 0.45, flickMinPx: 36 };
+function lockAxis(dx, dy, lockPx) {
+  if (Math.hypot(dx, dy) < lockPx) return null;
+  return Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+}
+/* 松手判定：g = {axis, dx, dy, dt, longFired} → {type:'tap'|'vdrag'|'flick'|'hdrag'|'none', ...} */
+function classifyRelease(g, cfg) {
+  cfg = cfg || GESTURE_CFG;
+  if (g.longFired) return { type: "none" };
+  if (!g.axis) return g.dt < cfg.longMs ? { type: "tap" } : { type: "longpress" };
+  if (g.axis === "v") return { type: "vdrag", dy: g.dy };
+  const v = Math.abs(g.dx) / Math.max(g.dt, 1);
+  if (g.dt <= cfg.flickMaxMs && v >= cfg.flickMinV && Math.abs(g.dx) >= cfg.flickMinPx) return { type: "flick", dir: g.dx > 0 ? 1 : -1 };
+  return { type: "hdrag", dx: g.dx };
+}
+/* 事件：down / lock{axis} / vmove{dy} / hmove{dx,dt} / longpress / 以及 classifyRelease 的结果 */
+function createGestureEngine(cfg, emit) {
+  cfg = Object.assign({}, GESTURE_CFG, cfg || {});
+  let g = null;
+  return {
+    get active() { return !!g; },
+    down(x, y, t) { g = { x0: x, y0: y, t0: t, axis: null, longFired: false, dx: 0, dy: 0 }; emit({ type: "down" }); },
+    move(x, y, t) {
+      if (!g || g.longFired) return;
+      g.dx = x - g.x0; g.dy = y - g.y0;
+      if (!g.axis) { g.axis = lockAxis(g.dx, g.dy, cfg.lockPx); if (g.axis) emit({ type: "lock", axis: g.axis }); }
+      if (g.axis === "v") emit({ type: "vmove", dy: g.dy });
+      else if (g.axis === "h") emit({ type: "hmove", dx: g.dx, dt: t - g.t0 });
+    },
+    tick(t) { if (g && !g.axis && !g.longFired && t - g.t0 >= cfg.longMs) { g.longFired = true; emit({ type: "longpress" }); } },
+    up(x, y, t) {
+      if (!g) return null;
+      if (x != null) { g.dx = x - g.x0; g.dy = y - g.y0; if (!g.axis) g.axis = lockAxis(g.dx, g.dy, cfg.lockPx); }
+      const r = classifyRelease({ axis: g.axis, dx: g.dx, dy: g.dy, dt: t - g.t0, longFired: g.longFired }, cfg);
+      g = null; if (r.type !== "none") emit(r); return r;
+    },
+    cancel() { g = null; emit({ type: "cancel" }); }
+  };
+}
+/*</GESTURE>*/
+
+/* =====================================================================
+   CORE · command log
+   ===================================================================== */
+const logEl = $("log"); let showTick = false;
+function log(kind, text) {
+  const d = new Date(), ts = d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0");
+  const line = document.createElement("div"); line.className = kind; line.textContent = `${ts} ${text}`;
+  logEl.appendChild(line); while (logEl.childNodes.length > 300) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+const J = (o) => JSON.stringify(o);
+const local = (msg) => log("loc", `[本地] ${msg}`);
+
+/* =====================================================================
+   CORE · transport mock（模拟 X1 remote-daemon :8767）
+   GET /state · WS /ws · POST /cmd {module,action,args} · POST /ptt
+   页内 MockDaemon 代表 X1 侧真相；客户端只通过 transport 看到它。
+   ===================================================================== */
+const LIB = {
+  music: { source: "spotify", kind: "music", items: [["晴天", "周杰伦", 269], ["夜曲", "周杰伦", 226], ["后来", "刘若英", 341], ["红豆", "王菲", 254]] },
+  podcast: { source: "pocketcasts", kind: "podcast", items: [["第 312 期 · 大航海时代的香料", "忽左忽右", 4350]] },
+  video: { source: "mpv", kind: "video", items: [["星际穿越 Interstellar (2014)", "mpv · 本地文件", 10143]] }
+};
+const WIN = [["kitty", "nvim ~/orb/spec.md"], ["firefox", "Omarchy 手册 — Mozilla Firefox"], ["spotify", "Spotify Premium"], ["kitty", "btop"], ["Typora", "omarchy-orb-v3-spec.md"]];
+const MockDaemon = (() => {
+  const S = {
+    host: "x1", player: null,
+    workspaces: { active: 1, list: [1, 2, 3, 4, 5, 6, 7, 8, 9].map((id) => ({ id, windows: [3, 2, 1, 0, 1, 0, 0, 0, 0][id - 1] })) },
+    window: { title: WIN[0][1], class: WIN[0][0] }
+  };
+  let idx = 0, kindNow = "music", wsSubs = [], winI = 0;
+  const push = (data, quiet) => { const msg = { type: "patch", data }; wsSubs.forEach((f) => f(msg, quiet)); };
+  function makePlayer(kind, i, keep) {
+    const L = LIB[kind], it = L.items[i % L.items.length];
+    return { source: L.source, kind: L.kind, title: it[0], artist: it[1], pos: 0, len: it[2], status: "Playing", volume: keep ? keep.volume : 45, muted: keep ? keep.muted : false, art: null };
+  }
+  function setKind(kind) {
+    kindNow = kind; idx = 0;
+    if (kind === "none") { S.player = null; push({ player: null }); return; }
+    S.player = makePlayer(kind, 0, S.player); S.player.pos = kind === "music" ? 37 : kind === "podcast" ? 1260 : 3605;
+    push({ player: S.player });
+  }
+  function track(d) {
+    const p = S.player; if (!p) return;
+    idx = (idx + d + 99) % LIB[p.kind].items.length;
+    S.player = makePlayer(p.kind, idx, p); push({ player: S.player });
+  }
+  function exec(module, action, a) {
+    a = a || {}; const p = S.player, pn = p ? p.source : "?";
+    if (module === "nowplaying") {
+      if (action === "open") { setKind(a.kind); return `omarchy-launch-${a.kind === "music" ? "spotify" : a.kind === "podcast" ? "pocketcasts" : "mpv"}`; }
+      if (!p) return { error: "no_player" };
+      switch (action) {
+        case "toggle": p.status = p.status === "Playing" ? "Paused" : "Playing"; push({ player: { status: p.status } }); return `playerctl -p ${pn} play-pause`;
+        case "play": p.status = "Playing"; push({ player: { status: p.status } }); return `playerctl -p ${pn} play`;
+        case "pause": p.status = "Paused"; push({ player: { status: p.status } }); return `playerctl -p ${pn} pause`;
+        case "next": track(1); return `playerctl -p ${pn} next`;
+        case "prev": track(-1); return `playerctl -p ${pn} previous`;
+        case "skip": p.pos = clamp(p.pos + a.by, 0, p.len - 1); push({ player: { pos: p.pos } }); return `playerctl -p ${pn} position ${Math.abs(a.by)}${a.by > 0 ? "+" : "-"}`;
+        case "seek": p.pos = clamp(a.to, 0, p.len - 1); push({ player: { pos: p.pos } }); return `playerctl -p ${pn} position ${a.to}`;
+        case "volume": p.volume = clamp(a.set, 0, 100); push({ player: { volume: p.volume } }); return `wpctl set-volume @DEFAULT_AUDIO_SINK@ ${(p.volume / 100).toFixed(2)}`;
+        case "mute": p.muted = a.on == null ? !p.muted : !!a.on; push({ player: { muted: p.muted } }); return `wpctl set-mute @DEFAULT_AUDIO_SINK@ ${p.muted ? 1 : 0}`;
+        case "playq": { // 点歌：v1 仅在曲库内匹配；真实实现见规格 ②PTT 第 2 层
+          if (!p || p.kind !== "music") setKind("music");
+          const items = LIB.music.items, k = items.findIndex((x) => x[0] === a.title && (!a.artist || x[1] === a.artist));
+          idx = k >= 0 ? k : 0; S.player = makePlayer("music", idx, S.player); push({ player: S.player });
+          return `spotify_player playback start track --name "${a.artist || ""} ${a.title}"`;
+        }
+      }
+    }
+    if (module === "workspaces" && action === "switch") {
+      S.workspaces.active = a.id; const w = S.workspaces.list[a.id - 1];
+      S.window = w.windows ? { title: WIN[(a.id + 1) % WIN.length][1], class: WIN[(a.id + 1) % WIN.length][0] } : { title: "", class: "" };
+      push({ workspaces: { active: a.id }, window: S.window }); return `hyprctl dispatch workspace ${a.id}`;
+    }
+    if (module === "quick") {
+      if (action === "close") { const w = S.workspaces.list[S.workspaces.active - 1]; if (w.windows) w.windows--; S.window = w.windows ? { title: WIN[(winI + 2) % WIN.length][1], class: WIN[(winI + 2) % WIN.length][0] } : { title: "", class: "" }; push({ window: S.window, workspaces: { list: S.workspaces.list } }); return "hyprctl dispatch killactive"; }
+      return { screenshot: "omarchy-cmd-screenshot", lock: "omarchy-lock-screen", launcher: "omarchy-launch-walker" }[action] || { error: "unknown_action" };
+    }
+    return { error: "unknown_action" };
+  }
+  /* PTT 解析：第1层 固定命令 / 第2层 带参数 / 第3层 Agent（v1 只记录） */
+  const RULES = [
+    [/^(暂停|停一下)$/, 1, () => ["nowplaying", "pause", {}]], [/^(播放|继续)$/, 1, () => ["nowplaying", "play", {}]],
+    [/^下一首$/, 1, () => ["nowplaying", "next", {}]], [/^上一首$/, 1, () => ["nowplaying", "prev", {}]],
+    [/^静音$/, 1, () => ["nowplaying", "mute", { on: true }]], [/^锁屏$/, 1, () => ["quick", "lock", {}]], [/^截图$/, 1, () => ["quick", "screenshot", {}]],
+    [/^音量(?:调到|设为)?\s*(\d{1,3})$/, 2, (m) => ["nowplaying", "volume", { set: clamp(+m[1], 0, 100) }]],
+    [/^切到工作区\s*([1-9])$/, 2, (m) => ["workspaces", "switch", { id: +m[1] }]],
+    [/^播放\s+(\S+)\s+(\S+)$/, 2, (m) => ["nowplaying", "playq", { artist: m[1], title: m[2] }]]
+  ];
+  function ptt(text) {
+    for (const [re, tier, f] of RULES) {
+      const m = text.match(re); if (!m) continue;
+      const [module, action, args] = f(m), ex = exec(module, action, args);
+      return { text, tier, action: { module, action, args }, result: typeof ex === "string" ? "ok" : ex.error, _exec: ex };
+    }
+    return { text, tier: 3, action: null, result: "已记录，v1 不处理" };
+  }
+  setInterval(() => { // 1s 推进进度；音乐放完自动下一首
+    const p = S.player; if (!p || p.status !== "Playing") return;
+    p.pos += 1; if (p.pos >= p.len) { if (p.kind === "music") return track(1); p.pos = p.len; p.status = "Stopped"; push({ player: { pos: p.pos, status: p.status } }); return; }
+    push({ player: { pos: p.pos } }, true);
+  }, 1000);
+  setInterval(() => { // 偶尔切换窗口标题（模拟 socket2 activewindow 事件）
+    const w = S.workspaces.list[S.workspaces.active - 1]; if (!w.windows) return;
+    winI = (winI + 1) % WIN.length; S.window = { title: WIN[winI][1], class: WIN[winI][0] }; push({ window: S.window });
+  }, 14000);
+  setKind("music");
+  return { state: () => JSON.parse(JSON.stringify(S)), exec, ptt, setKind, sub: (f) => wsSubs.push(f), kind: () => kindNow };
+})();
+
+const Transport = {
+  LAT: 35,
+  getState() { log("tx", "→ GET /state"); return new Promise((r) => setTimeout(() => { const s = MockDaemon.state(); log("rx", `← 200 ${J(s)}`); r(s); }, this.LAT)); },
+  connectWS(onMsg) {
+    log("tx", "→ WS /ws  (Upgrade: websocket)"); log("rx", "← 101 Switching Protocols");
+    MockDaemon.sub((msg, quiet) => setTimeout(() => { if (!quiet || showTick) log("ws", `⇠ WS ${J(msg)}`); onMsg(msg); }, this.LAT));
+  },
+  cmd(module, action, args) {
+    const body = { module, action, args: args || {} };
+    log("tx", `→ POST /cmd ${J(body)}`);
+    return new Promise((r) => setTimeout(() => { const ex = MockDaemon.exec(module, action, args); const res = typeof ex === "string" ? { ok: true, _exec: ex } : { ok: false, error: ex.error }; log(res.ok ? "rx" : "err", `← ${res.ok ? 200 : 409} ${J(res)}`); r(res); }, this.LAT));
+  },
+  ptt(text, ms) {
+    log("tx", `→ POST /ptt  multipart/form-data  audio=<audio/webm;codecs=opus ${(ms / 1000).toFixed(1)}s ≈${Math.round(ms * 4)}B>  lang=zh-CN`);
+    return new Promise((r) => setTimeout(() => { const res = MockDaemon.ptt(text); log(res.tier === 3 ? "loc" : "rx", `← 200 ${J(res)}`); r(res); }, 420));
+  }
+};
+
+/* =====================================================================
+   CORE · state store（客户端镜像：GET /state 全量 + WS 增量合并）
+   ===================================================================== */
+const Store = {
+  s: { connected: false, player: null, workspaces: { active: 1, list: [] }, window: { title: "", class: "" } },
+  subs: [],
+  apply(patch) { merge(this.s, patch); this.subs.forEach((f) => f()); },
+  optimistic(patch, why) { local(`乐观更新 ${J(patch)}${why ? "（" + why + "）" : ""}`); this.apply(patch); },
+  on(f) { this.subs.push(f); }
+};
+
+/* =====================================================================
+   CORE · feedback（toast 气泡 + 震动）
+   ===================================================================== */
+let toastEl = null, toastT = 0;
+function toast(text, ms = 900) {
+  if (!toastEl) return; toastEl.textContent = text; toastEl.classList.add("on");
+  clearTimeout(toastT); toastT = setTimeout(() => toastEl && toastEl.classList.remove("on"), ms);
+}
+function haptic() {
+  if (UI.shell !== "phone") return;
+  if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) { /* 不支持即忽略 */ } }
+}
+
+/* =====================================================================
+   CORE · module registry + nav
+   模块合同：{id,name,icon,layout,gestures,commands,reads,voice,render(shell,view),handle(evt,ctx)}
+   ===================================================================== */
+const Registry = {
+  list: [],
+  register(m) {
+    for (const k of ["id", "name", "icon", "layout", "gestures", "commands", "reads", "voice", "render"]) if (!(k in m)) throw new Error(`模块 ${m.id || "?"} 缺少字段 ${k}`);
+    this.list.push(m);
+  },
+  get(id) { return this.list.find((m) => m.id === id); }
+};
+const UI = { shell: "phone", theme: "tokyo", mod: "nowplaying", scale: 1, local: {} };
+const modUI = (id) => (UI.local[id] = UI.local[id] || {});
+function makeCtx(m) {
+  return {
+    state: Store.s, ui: modUI(m.id), shell: UI.shell,
+    cmd: (action, args, module) => Transport.cmd(module || m.id, action, args),
+    optimistic: (p, why) => Store.optimistic(p, why), toast, haptic, local, render: () => render(), transport: Transport
+  };
+}
+function go(id) { if (UI.mod === id) return; UI.mod = id; local(`切换模块 → ${Registry.get(id).name}`); haptic(); render(); }
+function step(d) { const L = Registry.list, i = L.findIndex((m) => m.id === UI.mod); go(L[(i + d + L.length) % L.length].id); }
+
+/* =====================================================================
+   CORE · shells（同一 registry，两种外壳）
+   ===================================================================== */
+const dev = $("dev"), devwrap = $("devwrap");
+let modEl = null, screenEl = null, tabsEl = null, dotsEl = null;
+function buildShell() {
+  if (UI.shell === "phone") {
+    dev.innerHTML = `<div class="phone"><div class="screen" id="screen"><div class="ph-island"></div>
+      <div class="ph-status"><span>21:11</span><span><i class="dot"></i>X1 · 已连接</span></div>
+      <div class="ph-mod" id="mod"></div>
+      <nav class="ph-tabs" id="tabs">${Registry.list.map((m) => `<button data-tab="${m.id}">${ic(m.icon)}${esc(m.name)}</button>`).join("")}</nav>
+      <div class="ph-home"></div><div class="toast ph-toast" id="toast"></div></div></div>`;
+  } else {
+    dev.innerHTML = `<div class="orb"><div class="orb-ring"><div class="screen" id="screen"><div class="orb-mod" id="mod"></div>
+      <div class="orb-dots" id="dots"></div><div class="toast orb-toast" id="toast"></div></div></div>
+      <div class="hw"><button id="hwPrev">◀ 上一模块</button><button id="hwPtt">● PTT 键（按住）</button><button id="hwNext">下一模块 ▶</button></div></div>`;
+    $("hwPrev").onclick = () => { local("实体键：上一模块"); step(-1); };
+    $("hwNext").onclick = () => { local("实体键：下一模块"); step(1); };
+    const k = $("hwPtt");
+    k.addEventListener("pointerdown", (e) => { e.preventDefault(); k.setPointerCapture(e.pointerId); k.classList.add("rec"); local("实体 PTT 键按下"); if (UI.mod !== "ptt") go("ptt"); pttDown(); });
+    const up = () => { if (!k.classList.contains("rec")) return; k.classList.remove("rec"); pttUp(); };
+    k.addEventListener("pointerup", up); k.addEventListener("pointercancel", up);
+  }
+  screenEl = $("screen"); modEl = $("mod"); tabsEl = $("tabs"); dotsEl = $("dots"); toastEl = $("toast");
+  if (tabsEl) tabsEl.onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) go(b.dataset.tab); };
+  bindPointer(); fit(); render();
+}
+function fit() {
+  const w = UI.shell === "phone" ? 414 : 520, h = UI.shell === "phone" ? 868 : 566;
+  const avail = Math.max(420, window.innerHeight - 110), aw = Math.max(280, Math.min(window.innerWidth - 24, 1180));
+  UI.scale = Math.min(1, avail / h, aw / w);
+  dev.style.transform = `scale(${UI.scale})`; devwrap.style.width = w * UI.scale + "px"; devwrap.style.height = h * UI.scale + "px";
+}
+function render() {
+  const m = Registry.get(UI.mod);
+  modEl.innerHTML = m.render(UI.shell, { state: Store.s, ui: modUI(m.id), shell: UI.shell });
+  if (tabsEl) tabsEl.querySelectorAll("[data-tab]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.tab === UI.mod)));
+  if (dotsEl) dotsEl.innerHTML = Registry.list.map((x) => `<i class="${x.id === UI.mod ? "on" : ""}"></i>`).join("");
+}
+/* 指针：委托在 screen 上（重绘不丢捕获）。[data-pad] → 手势引擎；[data-act] → 按钮；[data-hold] → 按住 */
+let engine = null, ptr = null, lpTimer = 0;
+function bindPointer() {
+  const xy = (e) => [e.clientX / UI.scale, e.clientY / UI.scale];
+  screenEl.addEventListener("pointerdown", (e) => {
+    if (ptr) return;
+    const t = e.target, act = t.closest("[data-act]"), hold = t.closest("[data-hold]"), pad = t.closest("[data-pad]");
+    const m = Registry.get(UI.mod), [x, y] = xy(e);
+    if (hold || act || pad) screenEl.setPointerCapture(e.pointerId); // 只捕获自己处理的指针，标签栏等保持原生 click
+    if (hold) { ptr = { kind: "hold", id: e.pointerId }; m.handle({ type: "hold-down" }, makeCtx(m)); return; }
+    if (act) { ptr = { kind: "act", id: e.pointerId, x, y, name: act.dataset.act, arg: act.dataset.arg }; act.classList.add("press"); return; }
+    if (pad) {
+      ptr = { kind: "pad", id: e.pointerId };
+      engine = createGestureEngine({}, (ev) => m.handle(Object.assign({ gesture: true }, ev), makeCtx(m)));
+      engine.down(x, y, now()); clearTimeout(lpTimer); lpTimer = setTimeout(() => engine && engine.tick(now()), GESTURE_CFG.longMs + 5);
+    }
+  });
+  screenEl.addEventListener("pointermove", (e) => { if (ptr && ptr.kind === "pad" && engine) { const [x, y] = xy(e); engine.move(x, y, now()); } });
+  const end = (e, cancel) => {
+    if (!ptr || e.pointerId !== ptr.id) return;
+    const p = ptr; ptr = null; clearTimeout(lpTimer); const m = Registry.get(UI.mod);
+    if (p.kind === "hold") m.handle({ type: "hold-up" }, makeCtx(m));
+    else if (p.kind === "act") { const [x, y] = xy(e); if (!cancel && Math.hypot(x - p.x, y - p.y) < 16) { haptic(); m.handle({ type: "act", name: p.name, arg: p.arg }, makeCtx(m)); } render(); }
+    else if (p.kind === "pad" && engine) { const [x, y] = xy(e); cancel ? engine.cancel() : engine.up(x, y, now()); engine = null; }
+  };
+  screenEl.addEventListener("pointerup", (e) => end(e, false));
+  screenEl.addEventListener("pointercancel", (e) => end(e, true));
+}
+
+/* =====================================================================
+   MODULES · 每个模块一个对象；新增模块只需 Registry.register()，不改 CORE
+   ===================================================================== */
+const SRC_LABEL = { music: "音乐", podcast: "播客", video: "视频" };
+const coverStyle = (p) => { const h = hue(p.title + p.artist); return `background:linear-gradient(135deg,hsl(${h} 55% 45%),hsl(${(h + 50) % 360} 60% 28%))`; };
+
+/* ---------- MODULE: nowplaying 正在播放 ---------- */
+const NowPlaying = {
+  id: "nowplaying", name: "正在播放", icon: "music", layout: "pad+info",
+  gestures: ["tap:toggle", "vdrag:volume", "hflick:next|prev (播客/视频 skip±15)", "hdrag:seek", "long600:mute"],
+  commands: ["toggle", "play", "pause", "next", "prev", "skip{by}", "seek{to}", "volume{set}", "mute{on?}", "open{kind}", "playq{artist,title}"],
+  reads: ["player.source", "player.kind", "player.title", "player.artist", "player.pos", "player.len", "player.status", "player.volume", "player.muted", "player.art"],
+  voice: ["暂停", "播放|继续", "下一首", "上一首", "静音", "音量调到{n}", "播放 {歌手} {歌名}"],
+  render(shell, v) {
+    const p = v.state.player, u = v.ui;
+    if (!p) return shell === "phone" ? this.emptyPhone() : this.emptyOrb();
+    const vol = u.vol != null ? u.vol : p.volume, pos = p.pos, tgt = u.scrub;
+    const playIc = p.status === "Playing" ? "pause" : "play", isMusic = p.kind === "music";
+    const tag = `${SRC_LABEL[p.kind]} · ${p.source}`;
+    if (shell === "phone") {
+      return `<div class="np-pad" data-pad>
+          <span class="chip">${ic(p.kind, "")}${esc(tag)}</span>
+          <div class="cover" style="${coverStyle(p)}">${ic(playIc === "pause" ? p.kind : "pause")}</div>
+          <div class="scrub">${tgt != null ? `→ ${fmt(tgt)}` : ""}</div>
+          <div class="hint">点 播放/暂停 · ↕ 音量 · ↔ 快滑${isMusic ? "切歌" : "±15s"} / 慢拖进度 · 长按 静音</div>
+        </div>
+        <div class="np-info">
+          <div class="np-title trunc">${esc(p.title)}</div><div class="np-artist trunc">${esc(p.artist)}</div>
+          <div><div class="bar"><i style="width:${(pos / p.len) * 100}%"></i>${tgt != null ? `<i class="ghost" style="width:${(tgt / p.len) * 100}%"></i>` : ""}</div>
+            <div class="np-time"><span>${fmt(tgt != null ? tgt : pos)}</span><span>${fmt(p.len)}</span></div></div>
+          <div class="np-vol">${ic(p.muted ? "mute" : "vol")}<div class="bar"><i style="width:${p.muted ? 0 : vol}%"></i></div><span style="width:52px;text-align:right">${p.muted ? "静音" : vol}</span></div>
+          <div class="np-ctl">
+            <button class="btn" data-act="${isMusic ? "prev" : "back15"}" aria-label="${isMusic ? "上一首" : "后退15秒"}">${ic(isMusic ? "prev" : "back")}${isMusic ? "" : "<small>15</small>"}</button>
+            <button class="btn pri" data-act="toggle" aria-label="播放/暂停">${ic(playIc)}</button>
+            <button class="btn" data-act="${isMusic ? "next" : "fwd15"}" aria-label="${isMusic ? "下一首" : "前进15秒"}">${ic(isMusic ? "next" : "fwd")}${isMusic ? "" : "<small>15</small>"}</button>
+          </div>
+        </div>`;
+    }
+    // 圆屏：外环=进度（目标进度为第二层），中心=手势区
+    const R = 219, C = 2 * Math.PI * R, f = pos / p.len, ft = tgt != null ? tgt / p.len : null;
+    return `<svg class="o-ring" viewBox="0 0 466 466"><circle cx="233" cy="233" r="${R}" fill="none" stroke="var(--trk)" stroke-width="8"/>
+        <circle cx="233" cy="233" r="${R}" fill="none" stroke="var(--acc)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(f * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 233 233)"/>
+        ${ft != null ? `<circle cx="233" cy="233" r="${R}" fill="none" stroke="var(--acc2)" stroke-opacity=".7" stroke-width="8" stroke-dasharray="${(ft * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 233 233)"/>` : ""}</svg>
+      <div class="o-pad" data-pad></div>
+      <div class="o-abs" style="top:52px;pointer-events:none"><span class="chip" style="font-size:20px">${esc(tag)}</span></div>
+      <div class="cover" style="position:absolute;left:163px;top:104px;width:140px;height:140px;border-radius:50%;pointer-events:none;${coverStyle(p)}">${ic(playIc === "pause" ? p.kind : "pause")}</div>
+      <div class="o-abs o-t trunc" style="top:258px;padding:0 70px;pointer-events:none">${esc(p.title)}</div>
+      <div class="o-abs o-s trunc" style="top:292px;padding:0 80px;pointer-events:none">${esc(p.artist)}</div>
+      <div class="o-abs o-s" style="top:330px;font-family:var(--mono);pointer-events:none;${tgt != null ? "color:var(--acc2);font-weight:700" : ""}">${fmt(tgt != null ? tgt : pos)} / ${fmt(p.len)}</div>
+      <div class="o-abs o-s" style="top:366px;pointer-events:none">${p.muted ? "静音" : "音量 " + vol}</div>`;
+  },
+  emptyPhone() {
+    return `<div class="np-empty"><p>当前没有播放器，打开一个：</p>
+      <button class="btn" data-act="open" data-arg="music">${ic("music")}音乐</button>
+      <button class="btn" data-act="open" data-arg="podcast">${ic("podcast")}播客</button>
+      <button class="btn" data-act="open" data-arg="video">${ic("video")}视频</button></div>`;
+  },
+  emptyOrb() {
+    return `<div class="o-abs o-s" style="top:110px">没有播放器</div>
+      <div class="o-grid" style="left:41px;top:173px;grid-template-columns:repeat(3,120px)">
+      ${["music", "podcast", "video"].map((k) => `<button class="btn" style="height:120px;border-radius:50%" data-act="open" data-arg="${k}">${ic(k)}<small>${SRC_LABEL[k]}</small></button>`).join("")}</div>`;
+  },
+  handle(e, ctx) {
+    const p = ctx.state.player, u = ctx.ui;
+    if (e.type === "act") {
+      if (e.name === "open") { ctx.toast(`打开${SRC_LABEL[e.arg]}…`); return ctx.cmd("open", { kind: e.arg }); }
+      if (!p) return;
+      if (e.name === "toggle") return this.toggle(ctx);
+      if (e.name === "next" || e.name === "prev") { ctx.toast(e.name === "next" ? "下一首" : "上一首"); return ctx.cmd(e.name); }
+      if (e.name === "fwd15" || e.name === "back15") return this.skip(ctx, e.name === "fwd15" ? 15 : -15);
+      return;
+    }
+    if (!e.gesture || !p) return;
+    const pxPerVol = ctx.shell === "phone" ? 4 : 3, padW = ctx.shell === "phone" ? 390 : 330;
+    switch (e.type) {
+      case "down": u.vol0 = p.volume; u.lastVolSent = 0; break;
+      case "tap": this.toggle(ctx); break;
+      case "vmove": {
+        const v = clamp(Math.round(u.vol0 - e.dy / pxPerVol), 0, 100);
+        if (v !== u.vol) { u.vol = v; ctx.toast(`音量 ${v}`); ctx.render(); }
+        if (now() - u.lastVolSent > 150) { u.lastVolSent = now(); ctx.cmd("volume", { set: v }); } // 拖动中节流 150ms
+        break;
+      }
+      case "vdrag": if (u.vol != null) { const v = u.vol; u.vol = null; ctx.haptic(); ctx.optimistic({ player: { volume: v } }, "松手提交"); ctx.cmd("volume", { set: v }); } break;
+      case "hmove": { // 慢拖预览目标时间；快滑在松手前也可能短暂出现预览
+        if (e.dt < 120 && Math.abs(e.dx) < 60) break;
+        const spp = clamp(p.len / (padW * 1.5), 0.25, 8);
+        u.scrub = Math.round(clamp(p.pos + e.dx * spp, 0, p.len - 1)); ctx.toast(`→ ${fmt(u.scrub)}`, 1500); ctx.render(); break;
+      }
+      case "flick": u.scrub = null;
+        if (p.kind === "music") { ctx.toast(e.dir > 0 ? "下一首 ▶" : "◀ 上一首"); ctx.haptic(); ctx.cmd(e.dir > 0 ? "next" : "prev"); }
+        else this.skip(ctx, e.dir * 15);
+        ctx.render(); break;
+      case "hdrag": if (u.scrub != null) { const to = u.scrub; u.scrub = null; ctx.toast(`跳到 ${fmt(to)}`); ctx.haptic(); ctx.optimistic({ player: { pos: to } }, "seek 预览"); ctx.cmd("seek", { to }); } break;
+      case "longpress": { const on = !p.muted; ctx.haptic(); ctx.toast(on ? "静音" : "取消静音"); ctx.optimistic({ player: { muted: on } }, "长按 600ms"); ctx.cmd("mute", { on }); break; }
+      case "cancel": u.scrub = null; u.vol = null; ctx.render(); break;
+    }
+  },
+  toggle(ctx) { const p = ctx.state.player, st = p.status === "Playing" ? "Paused" : "Playing"; ctx.toast(st === "Playing" ? "▶ 播放" : "❚❚ 暂停", 600); ctx.haptic(); ctx.optimistic({ player: { status: st } }, "立即响应"); ctx.cmd("toggle"); },
+  skip(ctx, by) { const p = ctx.state.player; ctx.toast(by > 0 ? "+15s" : "−15s"); ctx.haptic(); ctx.optimistic({ player: { pos: clamp(p.pos + by, 0, p.len - 1) } }); ctx.cmd("skip", { by }); }
+};
+
+/* ---------- MODULE: workspaces 工作区 ---------- */
+const Workspaces = {
+  id: "workspaces", name: "工作区", icon: "grid", layout: "grid3x3",
+  gestures: ["tap:switch"], commands: ["switch{id}"], reads: ["workspaces.active", "workspaces.list[].windows", "window.title", "window.class"],
+  voice: ["切到工作区{1-9}"],
+  render(shell, v) {
+    const W = v.state.workspaces, w = v.state.window;
+    const tile = (x, h) => `<button class="btn ${x.id === W.active ? "pri" : ""}" style="height:${h}px" data-act="switch" data-arg="${x.id}" aria-label="工作区 ${x.id}">${x.id}<small>${x.windows ? "●".repeat(Math.min(x.windows, 3)) : "空"}</small></button>`;
+    if (shell === "phone") return `<div class="p-h">工作区</div>
+      <div class="ws-cur"><small>当前窗口 · 工作区 ${W.active}</small><b class="trunc">${esc(w.title || "（空工作区）")}</b><span>${esc(w.class || "—")}</span></div>
+      <div class="ws-grid">${W.list.map((x) => tile(x, 104)).join("")}</div>`;
+    return `<div class="o-abs o-s trunc" style="top:30px;padding:0 120px;font-size:20px">${esc(w.class || "空")}</div>
+      <div class="o-abs o-t trunc" style="top:56px;padding:0 90px;font-size:20px">${esc(w.title || "（空工作区）")}</div>
+      <div class="o-grid" style="left:89px;top:100px;grid-template-columns:repeat(3,88px)">${W.list.map((x) => tile(x, 88).replace("<small>", '<small style="font-size:14px">')).join("")}</div>`;
+  },
+  handle(e, ctx) {
+    if (e.type !== "act") return;
+    const id = +e.arg; if (id === ctx.state.workspaces.active) return ctx.toast(`已在工作区 ${id}`);
+    ctx.toast(`工作区 ${id}`); ctx.optimistic({ workspaces: { active: id } }); ctx.cmd("switch", { id });
+  }
+};
+
+/* ---------- MODULE: quick 快捷 ---------- */
+const QUICK = [["screenshot", "截图", "shot"], ["lock", "锁屏", "lock"], ["close", "关闭窗口", "close"], ["launcher", "启动器", "launch"]];
+const Quick = {
+  id: "quick", name: "快捷", icon: "bolt", layout: "grid2x2",
+  gestures: ["tap:action"], commands: QUICK.map((q) => q[0]), reads: ["window.title"], voice: ["截图", "锁屏"],
+  render(shell, v) {
+    if (shell === "phone") return `<div class="p-h">快捷</div><div class="qk-grid">${QUICK.map((q) => `<button class="btn" data-act="${q[0]}">${ic(q[2])}${q[1]}</button>`).join("")}</div>
+      <p style="margin:16px 20px;font-size:13px;color:var(--sub)" class="trunc">关闭窗口作用于：${esc(v.state.window.title || "（无）")}</p>`;
+    return `<div class="o-grid" style="left:105px;top:105px;grid-template-columns:repeat(2,120px);gap:16px">${QUICK.map((q) => `<button class="btn" style="height:120px;border-radius:28px" data-act="${q[0]}">${ic(q[2])}<small>${q[1]}</small></button>`).join("")}</div>`;
+  },
+  handle(e, ctx) {
+    if (e.type !== "act") return; const q = QUICK.find((x) => x[0] === e.name); if (!q) return;
+    ctx.toast(q[0] === "close" ? `关闭 ${ctx.state.window.class || "窗口"}` : q[1]); ctx.cmd(q[0]);
+  }
+};
+
+/* ---------- MODULE: ptt 按住说话 ---------- */
+const PTT_SAMPLES = ["暂停", "下一首", "音量调到30", "切到工作区3", "锁屏", "播放 周杰伦 晴天", "帮我把今天的会议整理成待办"];
+const TIER = { 1: "第1层 固定命令", 2: "第2层 带参数", 3: "第3层 Agent · 暂缓" };
+let pttCycle = 0;
+const Ptt = {
+  id: "ptt", name: "PTT", icon: "mic", layout: "card+hold",
+  gestures: ["hold:record", "release:send"], commands: ["POST /ptt"], reads: [], voice: ["（本模块即语音入口，解析规则见各模块 voice）"],
+  render(shell, v) {
+    const u = v.ui, rec = u.rec, res = u.res;
+    const secs = rec ? ((now() - rec) / 1000).toFixed(1) : null;
+    const ph = now() / 160; // 波形由时间驱动（模拟电平；真机用 AnalyserNode 音量）
+    const wave = `<div class="wave">${Array.from({ length: 9 }, (_, i) => `<i style="height:${rec ? Math.round(10 + 40 * Math.abs(Math.sin(ph + i * 0.8) * Math.cos(ph * 0.37 + i))) : 8}px"></i>`).join("")}</div>`;
+    const body = rec ? `${wave}<div style="text-align:center;font:600 20px var(--mono);color:var(--bad)">录音中 ${secs}s</div>`
+      : u.busy ? `<div class="ph">识别中…</div>`
+      : res ? `<div class="q">「${esc(res.text)}」</div><div><span class="tier t${res.tier}">${TIER[res.tier]}</span></div>
+          <div class="r">${res.tier === 3 ? "已记录，v1 不处理" : `${esc(res.action.module)}.${esc(res.action.action)} ${esc(Object.entries(res.action.args).map(([k, v]) => k + "=" + v).join(" "))} → ${res.result === "ok" ? "已执行" : esc(res.result)}`}</div>`
+      : `<div class="ph">按住下方按钮说话，松开发送。<br>示例：暂停 · 下一首 · 音量调到30 · 切到工作区3 · 锁屏 · 播放 周杰伦 晴天</div>`;
+    if (shell === "phone") return `<div class="p-h">按住说话</div><div class="pt-card">${body}</div>
+      <div class="pt-tiers"><span class="tier t1">第1层</span> 固定命令　<span class="tier t2">第2层</span> 带参数/点歌　<span class="tier t3">第3层</span> Agent（v1 只记录）</div>
+      <button class="btn pt-hold ${rec ? "rec" : ""}" data-hold aria-label="按住说话">${ic("mic")}${rec ? "松开发送" : "按住说话"}</button>`;
+    const top = rec ? `${wave}<div class="o-s" style="color:var(--bad);font-family:var(--mono)">录音中 ${secs}s</div>`
+      : u.busy ? `<div class="o-s">识别中…</div>`
+      : res ? `<div class="o-t trunc" style="padding:0 40px">「${esc(res.text)}」</div>` : `<div class="o-s">按住中心或 PTT 键</div>`;
+    return `<div class="o-abs" style="top:56px;padding:0 70px">${top}</div>
+      <button class="btn ${rec ? "pri" : ""}" data-hold style="position:absolute;left:143px;top:166px;width:180px;height:180px;border-radius:50%;font-size:20px;font-weight:700;${rec ? "background:var(--bad);border-color:var(--bad);color:#fff" : ""}">${ic("mic")}${rec ? "松开发送" : "按住说话"}</button>
+      ${res && !rec && !u.busy ? `<div class="o-abs" style="top:362px"><span class="tier t${res.tier}" style="font-size:20px">${TIER[res.tier]}</span></div>
+        <div class="o-abs o-s trunc" style="top:398px;padding:0 120px;font-size:20px">${res.tier === 3 ? "已记录" : res.result === "ok" ? "已执行" : esc(res.result)}</div>` : ""}`;
+  },
+  handle(e, ctx) { if (e.type === "hold-down") pttDown(); else if (e.type === "hold-up") pttUp(); }
+};
+let recTimer = 0;
+function pttDown() {
+  const u = modUI("ptt"); if (u.rec || u.busy) return;
+  u.rec = now(); u.res = null; haptic(); local("开始录音（v1 模拟；真机 MediaRecorder，需 HTTPS）"); render();
+  clearInterval(recTimer); recTimer = setInterval(() => UI.mod === "ptt" && render(), 100);
+}
+function pttUp() {
+  const u = modUI("ptt"); if (!u.rec) return;
+  const ms = now() - u.rec; u.rec = null; clearInterval(recTimer); haptic();
+  if (ms < 300) { local(`录音 ${Math.round(ms)}ms < 300ms，丢弃`); toast("按住再说"); return render(); }
+  const pick = $("pttPick").value, text = pick === "__cycle" ? PTT_SAMPLES[pttCycle++ % PTT_SAMPLES.length] : pick;
+  u.busy = true; render();
+  Transport.ptt(text, ms).then((res) => { u.busy = false; u.res = res; haptic(); render(); /* 结果卡片本身即反馈，不弹 toast 以免遮挡 */ });
+}
+
+[NowPlaying, Workspaces, Quick, Ptt].forEach((m) => Registry.register(m));
+
+/* =====================================================================
+   CORE · boot + simulator controls（外壳外）
+   ===================================================================== */
+function setSeg(id, v) { $(id).querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v))); }
+function setTheme(t) { UI.theme = t; document.documentElement.dataset.theme = t; setSeg("segTheme", t); local(`皮肤 → ${t}（仅替换 CSS 变量）`); }
+function setShell(s) { UI.shell = s; setSeg("segShell", s); local(`外壳 → ${s === "phone" ? "手机 390×844" : "圆屏 ESP32 466×466"}（同一 registry）`); buildShell(); }
+$("segShell").onclick = (e) => { const b = e.target.closest("button"); if (b && b.dataset.v !== UI.shell) setShell(b.dataset.v); };
+$("segTheme").onclick = (e) => { const b = e.target.closest("button"); if (b) setTheme(b.dataset.v); };
+$("segPlayer").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; setSeg("segPlayer", b.dataset.v); log("loc", `[模拟] X1 上的播放器 → ${b.textContent}（daemon 侧 MPRIS 变化，经 WS 推送）`); MockDaemon.setKind(b.dataset.v); };
+$("pttPick").innerHTML = `<option value="__cycle">轮换示例句</option>` + PTT_SAMPLES.map((s) => `<option>${esc(s)}</option>`).join("");
+$("showTick").onchange = (e) => { showTick = e.target.checked; };
+$("clearLog").onclick = () => { logEl.textContent = ""; };
+window.addEventListener("resize", fit);
+Store.on(() => { if (modEl && !(ptr && ptr.kind === "pad" && UI.mod === "nowplaying" && modUI("nowplaying").scrub != null)) render(); });
+
+const q = new URLSearchParams(location.search);
+UI.shell = q.get("shell") === "orb" ? "orb" : "phone"; UI.mod = Registry.get(q.get("mod")) ? q.get("mod") : "nowplaying";
+setTheme(q.get("theme") === "light" ? "light" : "tokyo"); setSeg("segShell", UI.shell);
+const pk = ["music", "podcast", "video", "none"].includes(q.get("player")) ? q.get("player") : "music";
+setSeg("segPlayer", pk); if (pk !== "music") MockDaemon.setKind(pk);
+buildShell();
+Transport.getState().then((s) => { Store.apply(Object.assign(s, { connected: true })); Transport.connectWS((msg) => msg.type === "patch" && Store.apply(msg.data)); });
+window.__orb = { Registry, Store, MockDaemon, Transport, UI, go, setShell, setTheme, createGestureEngine, classifyRelease };
+})();
+</script>
+</body>
+</html>
