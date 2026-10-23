@@ -111,12 +111,19 @@ static void player_task(void *arg)
         }
         const uint16_t fps = s_fps;
         xSemaphoreGive(s_idx_lock);
+        const int64_t t1 = esp_timer_get_time();
         if (ok && s_active && s_gen == gen && !s_receiving) {
             board_port_badge_show_frame(&s_dsc[back]);
             back ^= 1;
         }
-        int64_t left_ms = (1000 / fps) - (esp_timer_get_time() - t0) / 1000;
-        vTaskDelay(pdMS_TO_TICKS(left_ms > 5 ? left_ms : 5));   /* always yield: no task_wdt */
+        const int64_t t2 = esp_timer_get_time();
+        if ((i % 50) == 1) {
+            ESP_LOGI(TAG, "frame %lu: read+decode %lld ms, render %lld ms, ok=%d",
+                     (unsigned long)i, (t1 - t0) / 1000, (t2 - t1) / 1000, ok);
+        }
+        int64_t left_ms = (1000 / fps) - (t2 - t0) / 1000;
+        /* Always leave real idle time so LVGL and IDLE tasks run (no task_wdt). */
+        vTaskDelay(pdMS_TO_TICKS(left_ms > 20 ? left_ms : 20));
     }
     vTaskDelete(NULL);
 }
@@ -166,10 +173,12 @@ static esp_err_t upload_post(httpd_req_t *req)
             if (erased + chunk > s_part->size) chunk = s_part->size - erased;
             if ((err = esp_partition_erase_range(s_part, erased, chunk)) != ESP_OK) break;
             erased += chunk;
+            vTaskDelay(1);
         }
         if (err != ESP_OK) break;
         if ((err = esp_partition_write(s_part, done, buf, r)) != ESP_OK) break;
         done += r;
+        vTaskDelay(1);   /* flash ops stall both cores; let IDLE/LVGL breathe between chunks */
         s_progress = (int)(done * 100 / total);
     }
     free(buf);

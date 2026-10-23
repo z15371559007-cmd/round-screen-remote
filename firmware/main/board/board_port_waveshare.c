@@ -662,6 +662,10 @@ void board_port_badge_show_frame(const void *image_dsc)
         lv_image_set_src(s_badge_img, image_dsc);
         set_hidden(s_badge_img, false);
         lv_obj_invalidate(s_badge_img);
+        /* Render right here, in the player task (core 1), instead of leaving a full-screen
+         * redraw to the LVGL task: back-to-back 466x466 redraws there starved IDLE0 and
+         * froze the board (same failure as the earlier task_wdt hang). */
+        lv_refr_now(NULL);
     }
     bsp_display_unlock();
 }
