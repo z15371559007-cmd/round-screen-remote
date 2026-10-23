@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check UI font covers all strings
+        run: python3 tools/check_font.py
+
       - name: Build firmware (ESP-IDF v5.5.1)
         uses: espressif/esp-idf-ci-action@v1
         with:

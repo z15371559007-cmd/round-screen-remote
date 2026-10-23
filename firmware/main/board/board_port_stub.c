@@ -31,3 +31,8 @@ void board_port_show_power_off(void)
 {
     ESP_LOGI(TAG, "Power-off requested");
 }
+
+void board_port_set_ptt_failed(bool failed)
+{
+    (void)failed;
+}
