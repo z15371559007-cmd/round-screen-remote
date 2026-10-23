@@ -24,11 +24,9 @@ idf_component_register(
         "platform/pmu_axp2101.c"
         "platform/hw_buttons.c"
         "modules/button_actions.c"
-        "modules/badge.c"
         "modules/badge_tools.c"
         "fonts/rsr_font_cjk_24.c"
         "fonts/rsr_font_cjk_24_extra.c"
-    EMBED_TXTFILES "web/upload.html"
     INCLUDE_DIRS "." "board" "modules" "platform" "fonts"
-    REQUIRES log esp_common esp_timer esp_driver_gpio esp_driver_i2c bt esp_hid nvs_flash esp_wifi esp_netif esp_event esp_http_server esp_partition spi_flash esp_psram waveshare__esp32_s3_touch_amoled_1_75 lvgl
+    REQUIRES log esp_common esp_timer esp_driver_gpio esp_driver_i2c bt esp_hid nvs_flash esp_event esp_psram waveshare__esp32_s3_touch_amoled_1_75 lvgl
 )

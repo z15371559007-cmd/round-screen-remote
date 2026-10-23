@@ -14,7 +14,6 @@
 #include "media_remote.h"
 #include "push_to_talk.h"
 #include "ble_hid.h"
-#include "badge.h"
 #include "badge_tools.h"
 #include "esp_timer.h"
 
@@ -74,11 +73,6 @@ static lv_obj_t *s_mode_controls;
 static lv_obj_t *s_media_controls;
 static lv_obj_t *s_prev_button;
 static lv_obj_t *s_next_button;
-static lv_obj_t *s_badge;                   /* full-screen 电子吧唧 layer */
-static lv_obj_t *s_badge_img;
-static lv_obj_t *s_badge_info;
-static bool s_badge_info_on;
-static uint32_t s_badge_sig = UINT32_MAX;
 static uint64_t s_ui_signature = UINT64_MAX;
 static bool s_deco_ptt;
 static bool s_deco_lit;
@@ -365,53 +359,9 @@ static void touch_log_event(lv_event_t *event)
 
 /* --------------------------------------------------------------- refresh */
 
-static void badge_tap_event(lv_event_t *event)
-{
-    if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-        s_badge_info_on = !s_badge_info_on;
-        s_badge_sig = UINT32_MAX;
-    }
-}
-
-/* Returns true when the badge layer owns the screen. */
-static bool refresh_badge(void)
-{
-    const bool on = (s_requested_mode == APP_MODE_BADGE) && !s_powering_off;
-    set_hidden(s_badge, !on);
-    if (!on) { s_badge_sig = UINT32_MAX; return false; }
-    const badge_state_t st = badge_state();
-    const int pct = (st == BADGE_STATE_RECEIVING) ? badge_progress() : 0;
-    const bool show = s_badge_info_on || st != BADGE_STATE_PLAYING;
-    const uint32_t sig = ((uint32_t)st << 16) | ((uint32_t)pct << 1) | (uint32_t)show;
-    if (sig == s_badge_sig) return true;
-    s_badge_sig = sig;
-    if (st == BADGE_STATE_NO_VIDEO) lv_image_set_src(s_badge_img, NULL);
-    set_hidden(s_badge_img, st != BADGE_STATE_PLAYING);
-    set_hidden(s_badge_info, !show);
-    static char text[160];
-    switch (st) {
-    case BADGE_STATE_RECEIVING:
-        snprintf(text, sizeof text, "正在接收视频\n%d%%", pct);
-        break;
-    case BADGE_STATE_STARTING:
-        snprintf(text, sizeof text, "吧唧启动中");
-        break;
-    case BADGE_STATE_ERROR:
-        snprintf(text, sizeof text, "吧唧启动失败\n请看串口日志");
-        break;
-    default:
-        snprintf(text, sizeof text, "%s手机连 WiFi\n" BADGE_WIFI_SSID "\n密码 " BADGE_WIFI_PASS "\n浏览器打开\n" BADGE_URL,
-                 st == BADGE_STATE_NO_VIDEO ? "还没有视频\n" : "");
-        break;
-    }
-    set_label(s_badge_info, text);
-    return true;
-}
-
 static void refresh_ui(lv_timer_t *timer)
 {
     (void)timer;
-    if (refresh_badge()) return;
     if (s_powering_off) {
         set_label(s_title, "正在关机");
         set_label(s_subtitle, "");
@@ -652,38 +602,13 @@ esp_err_t board_port_init(void)
     lv_obj_align(s_mode_controls, LV_ALIGN_TOP_MID, 0, 352);
     static const struct { const char *text; app_mode_t mode; } modes[] = {
         { "媒体", APP_MODE_MEDIA_REMOTE }, { "PTT", APP_MODE_PUSH_TO_TALK },
-        { "待机", APP_MODE_STANDBY_PET }, { "吧唧", APP_MODE_BADGE },
-        { "工具", APP_MODE_BADGE_TOOLS },
+        { "待机", APP_MODE_STANDBY_PET }, { "工具", APP_MODE_BADGE_TOOLS },
     };
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); ++i) {
-        lv_obj_t *button = make_button(s_mode_controls, modes[i].text, UI_FONT, 52, 46, 16);
+        lv_obj_t *button = make_button(s_mode_controls, modes[i].text, UI_FONT, 68, 46, 16);
         lv_obj_add_event_cb(button, mode_button_event, LV_EVENT_CLICKED,
                             (void *)(intptr_t)modes[i].mode);
     }
-
-    /* Badge layer last so it sits on top of everything; tap toggles the upload info. */
-    s_badge = lv_obj_create(screen);
-    lv_obj_remove_style_all(s_badge);
-    lv_obj_set_size(s_badge, FACE_SIZE, FACE_SIZE);
-    lv_obj_center(s_badge);
-    lv_obj_set_style_bg_color(s_badge, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(s_badge, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(s_badge, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(s_badge, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_badge, badge_tap_event, LV_EVENT_CLICKED, NULL);
-    s_badge_img = lv_image_create(s_badge);
-    lv_obj_center(s_badge_img);
-    lv_obj_clear_flag(s_badge_img, LV_OBJ_FLAG_CLICKABLE);
-    s_badge_info = make_label(s_badge, "", UI_FONT, COLOR_TEXT, 300);
-    lv_obj_set_height(s_badge_info, LV_SIZE_CONTENT);
-    lv_label_set_long_mode(s_badge_info, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_style_text_align(s_badge_info, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_bg_color(s_badge_info, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(s_badge_info, LV_OPA_70, 0);
-    lv_obj_set_style_pad_all(s_badge_info, 10, 0);
-    lv_obj_set_style_radius(s_badge_info, 16, 0);
-    lv_obj_center(s_badge_info);
-    lv_obj_add_flag(s_badge, LV_OBJ_FLAG_HIDDEN);
 
     lv_indev_t *touch = bsp_display_get_input_dev();
     if (touch != NULL) lv_indev_add_event_cb(touch, touch_log_event, LV_EVENT_PRESSED, NULL);
@@ -739,20 +664,4 @@ void board_port_ui_unlock(void)
 void board_port_show_power_off(void)
 {
     s_powering_off = true;
-}
-
-void board_port_badge_show_frame(const void *image_dsc)
-{
-    if (bsp_display_lock(-1) != ESP_OK) return;
-    if (s_requested_mode == APP_MODE_BADGE && s_badge_img && !s_powering_off) {
-        /* Player alternates two buffers, so the src pointer changes every frame. */
-        lv_image_set_src(s_badge_img, image_dsc);
-        set_hidden(s_badge_img, false);
-        lv_obj_invalidate(s_badge_img);
-        /* Render right here, in the player task (core 1), instead of leaving a full-screen
-         * redraw to the LVGL task: back-to-back 466x466 redraws there starved IDLE0 and
-         * froze the board (same failure as the earlier task_wdt hang). */
-        lv_refr_now(NULL);
-    }
-    bsp_display_unlock();
 }
