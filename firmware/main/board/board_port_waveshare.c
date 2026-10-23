@@ -357,17 +357,20 @@ static void refresh_ui(lv_timer_t *timer)
 
     const app_mode_t mode = s_requested_mode;
     const bool connected = ble_hid_is_connected();
+    const ble_hid_state_t ble_state = ble_hid_state();
     const bool listening = s_listening;
     const bool touch_down = s_touch_down;
     const bool failed = s_ptt_failed;
     const bool ptt_ok = ble_hid_ptt_key_configured();
-    const uint32_t signature = ((uint32_t)mode << 8) | ((uint32_t)connected << 4) |
+    const uint32_t signature = ((uint32_t)ble_state << 12) | ((uint32_t)mode << 8) | ((uint32_t)connected << 4) |
                                ((uint32_t)listening << 3) | ((uint32_t)touch_down << 2) |
                                ((uint32_t)failed << 1) | (uint32_t)ptt_ok;
     if (signature == s_ui_signature) return;   /* nothing changed: no redraw */
     s_ui_signature = signature;
 
-    const char *link = connected ? "蓝牙已连接" : "蓝牙未连接";
+    const char *link = connected ? "蓝牙已连接" :
+                       ble_state == BLE_HID_STATE_ADVERTISING ? "可配对 · Omarchy Orb" :
+                       ble_state == BLE_HID_STATE_FAILED ? "蓝牙启动失败" : "蓝牙未连接";
     const bool is_ptt = (mode == APP_MODE_PUSH_TO_TALK);
     const bool is_media = (mode == APP_MODE_MEDIA_REMOTE);
 
