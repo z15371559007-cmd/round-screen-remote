@@ -21,7 +21,6 @@ void push_to_talk_exit(void)
 {
     if (s_active) {
         (void)ble_hid_set_pressed(false);
-        ble_hid_stop();
         s_active = false;
     }
 }

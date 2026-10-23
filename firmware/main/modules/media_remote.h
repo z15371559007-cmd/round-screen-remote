@@ -7,6 +7,9 @@ typedef enum {
     MEDIA_COMMAND_PREVIOUS,
     MEDIA_COMMAND_NEXT,
     MEDIA_COMMAND_STOP,
+    MEDIA_COMMAND_VOLUME_UP,
+    MEDIA_COMMAND_VOLUME_DOWN,
+    MEDIA_COMMAND_MUTE,
 } media_command_t;
 
 esp_err_t media_remote_enter(void);

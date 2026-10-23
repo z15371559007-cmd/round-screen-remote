@@ -1,0 +1,36 @@
+menu "Round screen remote"
+
+choice ROUND_REMOTE_BOARD_SKU
+    prompt "Waveshare ESP32-S3-Touch-AMOLED-1.75 SKU"
+    default ROUND_REMOTE_SKU_UNCONFIRMED
+    help
+        The shared 2.0.5 family BSP owns the display/touch pin mapping. This selection is recorded
+        for build provenance only; it does not claim SKU-specific support or change pin assignments.
+
+config ROUND_REMOTE_SKU_UNCONFIRMED
+    bool "Not yet read from board label"
+config ROUND_REMOTE_SKU_31261
+    bool "31261"
+config ROUND_REMOTE_SKU_31262
+    bool "31262 (-B)"
+config ROUND_REMOTE_SKU_31264
+    bool "31264 (-G GNSS)"
+endchoice
+
+config ROUND_REMOTE_PTT_HID_USAGE
+    int "PTT keyboard HID usage (0 leaves PTT unconfigured)"
+    range 0 101
+    default 0
+    help
+        USB HID Keyboard/Keypad usage ID (0x04-0x65) sent while the PTT touch control is held.
+        Zero deliberately sends no keyboard report. Set only after choosing the host shortcut.
+
+config ROUND_REMOTE_PTT_HID_MODIFIERS
+    hex "PTT keyboard modifier bitmask"
+    range 0x00 0xFF
+    default 0x00
+    help
+        Optional keyboard modifier bits (bit 0 Ctrl, 1 Shift, 2 Alt, 3 GUI, 4-7 right-side equivalents).
+        This remains zero unless explicitly configured.
+
+endmenu
