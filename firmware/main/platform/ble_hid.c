@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "nvs_flash.h"
 
 #include "ble_hid.h"
@@ -18,7 +19,12 @@
 static const char *TAG = "ble_hid";
 static bool s_started;
 static esp_hidd_dev_t *s_hid_dev;
-static bool s_ptt_pressed;
+static volatile bool s_ptt_pressed;
+static SemaphoreHandle_t s_lock;
+static StaticSemaphore_t s_lock_buf;
+
+#define CONN_CB_MAX 4
+static struct { ble_hid_conn_cb_t cb; void *ctx; } s_conn_cbs[CONN_CB_MAX];
 
 /* Keyboard (report 1) and Consumer Control (report 3) share one BLE HID device. */
 static const uint8_t s_report_map[] = {
@@ -31,8 +37,10 @@ static const uint8_t s_report_map[] = {
     0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x08,
     0x81, 0x02,       /* 8 modifier bits */
     0x75, 0x08, 0x95, 0x01, 0x81, 0x01, /* Reserved byte */
-    0x15, 0x00, 0x25, 0x65, 0x05, 0x07,
-    0x19, 0x00, 0x29, 0x65, 0x75, 0x08, 0x95, 0x06,
+    /* Six-key array covering usages 0x00-0xFF, so F13-F24 (0x68-0x73) are transmitted.
+     * Logical Maximum uses the 2-byte form (0x26 0xFF 0x00): 0x25 0xFF would mean -1. */
+    0x15, 0x00, 0x26, 0xFF, 0x00, 0x05, 0x07,
+    0x19, 0x00, 0x2A, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x06,
     0x81, 0x00,       /* Six-key array */
     0xC0,
     0x05, 0x0C,       /* Usage Page (Consumer) */
@@ -53,13 +61,39 @@ static esp_hid_raw_report_map_t s_report_maps[] = {
 static esp_hid_device_config_t s_device_config = {
     .vendor_id = 0x303A,
     .product_id = 0x1001,
-    .version = 0x0100,
+    .version = 0x0101, /* bumped when the report map changed (F13 support) */
     .device_name = "Round Screen Remote",
     .manufacturer_name = "Personal Project",
     .serial_number = "RSR-01",
     .report_maps = s_report_maps,
     .report_maps_len = 1,
 };
+
+static void lock(void)   { if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY); }
+static void unlock(void) { if (s_lock) xSemaphoreGive(s_lock); }
+
+static void notify_conn(bool connected)
+{
+    for (int i = 0; i < CONN_CB_MAX; i++) {
+        if (s_conn_cbs[i].cb) s_conn_cbs[i].cb(connected, s_conn_cbs[i].ctx);
+    }
+}
+
+esp_err_t ble_hid_register_conn_cb(ble_hid_conn_cb_t cb, void *ctx)
+{
+    if (!cb) return ESP_ERR_INVALID_ARG;
+    for (int i = 0; i < CONN_CB_MAX; i++) {
+        if (s_conn_cbs[i].cb == cb && s_conn_cbs[i].ctx == ctx) return ESP_OK;
+    }
+    for (int i = 0; i < CONN_CB_MAX; i++) {
+        if (!s_conn_cbs[i].cb) {
+            s_conn_cbs[i].ctx = ctx;
+            s_conn_cbs[i].cb = cb;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NO_MEM;
+}
 
 static void hid_event_handler(void *arg, esp_event_base_t base, int32_t id, void *event_data)
 {
@@ -74,11 +108,16 @@ static void hid_event_handler(void *arg, esp_event_base_t base, int32_t id, void
         break;
     }
     case ESP_HIDD_CONNECT_EVENT:
+        /* A fresh link never inherits a held PTT key. */
+        s_ptt_pressed = false;
         ESP_LOGI(TAG, "BLE HID host connected");
+        notify_conn(true);
         break;
     case ESP_HIDD_DISCONNECT_EVENT:
+        /* Hosts drop all keys of a vanished HID device; we just forget our state. */
         s_ptt_pressed = false;
         ESP_LOGI(TAG, "BLE HID host disconnected (reason %d)", event->disconnect.reason);
+        notify_conn(false);
         if (esp_hid_ble_gap_adv_start() != ESP_OK) ESP_LOGW(TAG, "BLE advertising restart failed");
         break;
     default:
@@ -89,6 +128,7 @@ static void hid_event_handler(void *arg, esp_event_base_t base, int32_t id, void
 esp_err_t ble_hid_start(void)
 {
     if (s_started) return ESP_OK;
+    if (!s_lock) s_lock = xSemaphoreCreateMutexStatic(&s_lock_buf);
 
     esp_err_t err = nvs_flash_init();
     if (err != ESP_OK) {
@@ -122,10 +162,21 @@ bool ble_hid_is_connected(void)
 bool ble_hid_ptt_key_configured(void)
 {
     const int usage = CONFIG_ROUND_REMOTE_PTT_HID_USAGE;
-    /* Keyboard usages 0x00-0x03 are reserved by the HID usage table. */
-    return usage >= 0x04 && usage <= 0x65;
+    /* 0x00-0x03 are reserved; 0xE0-0xE7 are modifiers (use the modifier mask instead). */
+    return usage >= 0x04 && usage <= 0xDF;
 }
 
+uint8_t ble_hid_ptt_usage(void)
+{
+    return (uint8_t)CONFIG_ROUND_REMOTE_PTT_HID_USAGE;
+}
+
+bool ble_hid_ptt_is_down(void)
+{
+    return s_ptt_pressed;
+}
+
+/* Caller holds the lock. */
 static esp_err_t send_keyboard_report(uint8_t modifiers, uint8_t usage)
 {
     if (!ble_hid_is_connected()) return ESP_ERR_INVALID_STATE;
@@ -135,15 +186,28 @@ static esp_err_t send_keyboard_report(uint8_t modifiers, uint8_t usage)
 
 esp_err_t ble_hid_set_pressed(bool pressed)
 {
-    if (!ble_hid_is_connected()) return ESP_ERR_INVALID_STATE;
-    if (!ble_hid_ptt_key_configured()) return ESP_ERR_NOT_SUPPORTED;
-    if (pressed == s_ptt_pressed) return ESP_OK;
+    esp_err_t err = ESP_OK;
+    lock();
+    if (!pressed) {
+        /* Key up: always safe. If the link is gone the host already released the key. */
+        if (s_ptt_pressed) {
+            err = send_keyboard_report(0, 0);
+            s_ptt_pressed = false;          /* never keep local "down" state after a release */
+            if (err == ESP_ERR_INVALID_STATE) err = ESP_OK;
+        }
+        unlock();
+        return err;
+    }
 
-    esp_err_t err = pressed
-        ? send_keyboard_report((uint8_t)CONFIG_ROUND_REMOTE_PTT_HID_MODIFIERS,
-                               (uint8_t)CONFIG_ROUND_REMOTE_PTT_HID_USAGE)
-        : send_keyboard_report(0, 0);
-    if (err == ESP_OK) s_ptt_pressed = pressed;
+    if (!ble_hid_ptt_key_configured()) err = ESP_ERR_NOT_SUPPORTED;
+    else if (!ble_hid_is_connected()) err = ESP_ERR_INVALID_STATE;
+    else if (!s_ptt_pressed) {
+        /* One key-down report; the host keeps the key held until the empty report arrives. */
+        err = send_keyboard_report((uint8_t)CONFIG_ROUND_REMOTE_PTT_HID_MODIFIERS,
+                                   (uint8_t)CONFIG_ROUND_REMOTE_PTT_HID_USAGE);
+        if (err == ESP_OK) s_ptt_pressed = true;
+    }
+    unlock();
     return err;
 }
 
@@ -156,23 +220,42 @@ static uint16_t consumer_usage(ble_hid_media_command_t command)
     case BLE_HID_MEDIA_VOLUME_UP:  return 0x00E9; /* Volume Increment */
     case BLE_HID_MEDIA_VOLUME_DOWN:return 0x00EA; /* Volume Decrement */
     case BLE_HID_MEDIA_MUTE:       return 0x00E2; /* Mute */
+    case BLE_HID_MEDIA_STOP:       return 0x00B7; /* Stop */
     default: return 0;
     }
 }
 
 esp_err_t ble_hid_send_media(ble_hid_media_command_t command)
 {
-    if (!ble_hid_is_connected()) return ESP_ERR_INVALID_STATE;
     const uint16_t usage = consumer_usage(command);
     if (usage == 0) return ESP_ERR_INVALID_ARG;
-
+    lock();
+    if (!ble_hid_is_connected()) {
+        unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
     uint8_t report[2] = { (uint8_t)(usage & 0xFF), (uint8_t)(usage >> 8) };
     esp_err_t err = esp_hidd_dev_input_set(s_hid_dev, 0, 3, report, sizeof(report));
-    if (err != ESP_OK) return err;
+    if (err == ESP_OK) {
+        /* Give the host a brief key-down interval, then explicitly release the Consumer key. */
+        vTaskDelay(pdMS_TO_TICKS(25));
+        report[0] = 0;
+        report[1] = 0;
+        err = esp_hidd_dev_input_set(s_hid_dev, 0, 3, report, sizeof(report));
+    }
+    unlock();
+    return err;
+}
 
-    /* Give the host a brief key-down interval, then explicitly release the Consumer key. */
-    vTaskDelay(pdMS_TO_TICKS(25));
-    report[0] = 0;
-    report[1] = 0;
-    return esp_hidd_dev_input_set(s_hid_dev, 0, 3, report, sizeof(report));
+void ble_hid_release_all(void)
+{
+    lock();
+    s_ptt_pressed = false;
+    if (ble_hid_is_connected()) {
+        uint8_t kb[8] = { 0 };
+        uint8_t cc[2] = { 0 };
+        (void)esp_hidd_dev_input_set(s_hid_dev, 0, 1, kb, sizeof(kb));
+        (void)esp_hidd_dev_input_set(s_hid_dev, 0, 3, cc, sizeof(cc));
+    }
+    unlock();
 }

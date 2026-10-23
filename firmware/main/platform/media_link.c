@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "esp_err.h"
 #include "ble_hid.h"
 #include "media_link.h"
@@ -12,6 +13,11 @@ void media_link_stop(void)
 {
 }
 
+bool media_link_is_connected(void)
+{
+    return ble_hid_is_connected();
+}
+
 esp_err_t media_link_send_command(media_command_t command)
 {
     switch (command) {
@@ -21,7 +27,7 @@ esp_err_t media_link_send_command(media_command_t command)
     case MEDIA_COMMAND_VOLUME_UP:  return ble_hid_send_media(BLE_HID_MEDIA_VOLUME_UP);
     case MEDIA_COMMAND_VOLUME_DOWN:return ble_hid_send_media(BLE_HID_MEDIA_VOLUME_DOWN);
     case MEDIA_COMMAND_MUTE:      return ble_hid_send_media(BLE_HID_MEDIA_MUTE);
-    case MEDIA_COMMAND_STOP:      return ESP_ERR_NOT_SUPPORTED;
+    case MEDIA_COMMAND_STOP:      return ble_hid_send_media(BLE_HID_MEDIA_STOP);
     default: return ESP_ERR_INVALID_ARG;
     }
 }
