@@ -1,0 +1,87 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Omarchy Orb 吧唧</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;background:#080909;color:#F2EEE9;margin:0;padding:20px;max-width:480px;margin:auto}
+h1{font-size:20px;font-weight:600}label{display:block;margin:14px 0 4px;color:#928B85;font-size:14px}
+input[type=range]{width:100%}#pv{width:240px;height:240px;border-radius:50%;background:#171310;display:block;margin:16px auto;border:3px solid #45352E}
+button{width:100%;padding:14px;margin-top:18px;border:0;border-radius:12px;background:#F15B3D;color:#fff;font-size:17px}
+button:disabled{opacity:.4}#msg{margin-top:14px;text-align:center;color:#FF9B73;min-height:1.4em}
+</style></head><body>
+<h1>上传吧唧视频</h1>
+<input type="file" id="f" accept="video/*,image/gif">
+<canvas id="pv" width="466" height="466"></canvas>
+<label>起点 <span id="stv">0.0</span> 秒</label><input type="range" id="st" min="0" max="0" step="0.1" value="0">
+<label>时长 <span id="duv">6</span> 秒（最多 10 秒）</label><input type="range" id="du" min="1" max="10" step="0.5" value="6">
+<label>缩放 <span id="zmv">1.0</span>×</label><input type="range" id="zm" min="1" max="3" step="0.05" value="1">
+<label>左右 / 上下</label><input type="range" id="px" min="-1" max="1" step="0.02" value="0"><input type="range" id="py" min="-1" max="1" step="0.02" value="0">
+<label>帧率</label><select id="fp"><option>8</option><option selected>10</option><option>12</option><option>15</option></select>
+<button id="go" disabled>转换并上传</button>
+<div id="msg"></div>
+<script>
+'use strict';
+const S=466, V2_HEADER=24, MAX_SECONDS=10, MAX_FPS=15, MAX_FRAMES=150,
+      MAX_SOURCE_BYTES=100*1024*1024, MAX_JPEG_BYTES=256*1024,
+      FALLBACK_MAX=8*1024*1024-4096+V2_HEADER,
+      $=id=>document.getElementById(id), v=document.createElement('video');
+v.muted=true;v.playsInline=true;v.preload='auto';
+const pv=$('pv'),pc=pv.getContext('2d'),wc=document.createElement('canvas');wc.width=wc.height=S;const wx=wc.getContext('2d');
+let busy=false, objectUrl=null, sourceReady=false;
+function draw(ctx){const vw=v.videoWidth,vh=v.videoHeight;if(!vw||!vh)throw Error('视频画面尚未解码');const z=+$('zm').value,s=Math.min(vw,vh)/z;
+ const sx=(vw-s)/2*(1+ +$('px').value),sy=(vh-s)/2*(1+ +$('py').value);ctx.fillStyle='#000';ctx.fillRect(0,0,S,S);ctx.drawImage(v,sx,sy,s,s,0,0,S,S);}
+function seek(t){return new Promise((resolve,reject)=>{
+ const target=Math.max(0,Math.min(t,Math.max(0,v.duration-0.05)));
+ if(!v.seeking&&v.readyState>=2&&Math.abs(v.currentTime-target)<0.015){resolve();return;}
+ let done=false;const finish=err=>{if(done)return;done=true;clearTimeout(timer);v.removeEventListener('seeked',finish);v.removeEventListener('error',onerror);err?reject(err):resolve();};
+ const onerror=()=>finish(Error('读取视频帧失败'));
+ const timer=setTimeout(()=>finish(Error('视频解码超时，请换一个视频或重试')),8000);
+ v.addEventListener('seeked',finish,{once:true});v.addEventListener('error',onerror,{once:true});
+ try{v.currentTime=target;}catch(e){finish(e);}
+ });}
+async function preview(){if(busy||!sourceReady)return;$('stv').textContent=(+$('st').value).toFixed(1);$('duv').textContent=$('du').value;$('zmv').textContent=(+$('zm').value).toFixed(1);
+ try{await seek(+$('st').value);draw(pc);}catch(e){$('msg').textContent=e.message;}}
+['st','du','zm','px','py'].forEach(i=>$(i).oninput=preview);
+$('f').onchange=()=>{const file=$('f').files[0];if(!file)return;sourceReady=false;$('go').disabled=true;
+ if(file.size>MAX_SOURCE_BYTES){$('msg').textContent='原视频超过 100 MB，请先压缩后再选';return;}
+ if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(file);v.src=objectUrl;$('msg').textContent='读取中…';
+ v.onloadedmetadata=async()=>{const duration=v.duration;
+  if(!Number.isFinite(duration)||duration<1||!v.videoWidth||!v.videoHeight){$('msg').textContent='视频时长或画面尺寸无效';return;}
+  $('st').max=Math.max(0,duration-1).toFixed(1);$('st').value=0;
+  $('du').max=Math.min(MAX_SECONDS,duration).toFixed(1);$('du').value=Math.min(6,+$('du').max);
+  sourceReady=true;$('go').disabled=false;$('msg').textContent='';await preview();};
+ v.onerror=()=>{$('msg').textContent='无法读取这个视频格式';sourceReady=false;$('go').disabled=true;};
+};
+function crc32(bytes){let crc=0xffffffff;for(const byte of bytes){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}return (~crc)>>>0;}
+function videoBlob(frames,fps){let dataBytes=0;for(const frame of frames)dataBytes+=4+((frame.length+3)&~3);
+ const header=new Uint8Array(V2_HEADER),dv=new DataView(header.buffer);header.set([79,82,66,86]);
+ dv.setUint16(4,2,true);dv.setUint16(6,fps,true);dv.setUint16(8,S,true);dv.setUint16(10,S,true);
+ dv.setUint32(12,frames.length,true);dv.setUint32(16,dataBytes,true);dv.setUint32(20,crc32(header.subarray(0,20)),true);
+ const parts=[header];for(const frame of frames){const length=new Uint8Array(4);new DataView(length.buffer).setUint32(0,frame.length,true);parts.push(length,frame);
+  const padding=(4-(frame.length&3))&3;if(padding)parts.push(new Uint8Array(padding));}
+ return new Blob(parts,{type:'application/octet-stream'});}
+$('go').onclick=async()=>{if(busy||!sourceReady)return;busy=true;$('go').disabled=true;
+ try{
+  const fps=+$('fp').value,duration=+$('du').value,st=+$('st').value;
+  if(!Number.isFinite(duration)||duration<1||duration>MAX_SECONDS||fps<1||fps>MAX_FPS)throw Error('时长或帧率超出范围');
+  const n=Math.max(1,Math.ceil(duration*fps));if(n>MAX_FRAMES)throw Error('帧数超过设备上限');
+  let max=FALLBACK_MAX;try{const response=await fetch('/info',{cache:'no-store'});if(!response.ok)throw Error();const info=await response.json();if(Number.isFinite(info.max)&&info.max>=V2_HEADER+68)max=Math.min(max,info.max);}catch(e){$('msg').textContent='读取设备容量失败，仍按内置上限转换';}
+  const frames=[];let wireBytes=V2_HEADER;
+  for(let i=0;i<n;i++){
+   $('msg').textContent='转换 '+(i+1)+' / '+n;await seek(st+i/fps);draw(wx);pc.drawImage(wc,0,0);
+   const blob=await new Promise((resolve,reject)=>wc.toBlob(b=>b?resolve(b):reject(Error('浏览器无法编码 JPEG')), 'image/jpeg',.72));
+   const bytes=new Uint8Array(await blob.arrayBuffer());
+   if(bytes.length<64||bytes.length>MAX_JPEG_BYTES)throw Error('单帧图像超出安全大小，请降低画面复杂度或时长');
+   wireBytes+=4+((bytes.length+3)&~3);if(wireBytes>max)throw Error('转换结果超过设备 8 MiB 存储区，请缩短时长或降低帧率');frames.push(bytes);
+  }
+  const payload=videoBlob(frames,fps);if(payload.size!==wireBytes||payload.size>max)throw Error('转换结果大小校验失败');
+  $('msg').textContent='正在上传 '+(payload.size/1024/1024).toFixed(2)+' MiB…';
+  await new Promise((resolve,reject)=>{const x=new XMLHttpRequest();x.open('POST','/upload');x.timeout=180000;
+   x.upload.onprogress=e=>{if(e.lengthComputable)$('msg').textContent='上传 '+Math.round(e.loaded*100/e.total)+'%';};
+   x.onload=()=>x.status===200&&x.responseText.trim()==='ok'?resolve():reject(Error('设备拒绝视频：'+(x.responseText||('HTTP '+x.status))));
+   x.onerror=()=>reject(Error('上传中断，请确认手机仍连着 Omarchy-Orb'));x.ontimeout=()=>reject(Error('上传超时；设备不会把未完成的视频当作有效片段'));
+   x.send(payload);});
+  $('msg').textContent='完成！视频已保存并循环播放';
+ }catch(e){$('msg').textContent=e&&e.message?e.message:'转换失败，请换一个视频再试';}
+ finally{busy=false;$('go').disabled=!sourceReady;}
+};
+</script></body></html>

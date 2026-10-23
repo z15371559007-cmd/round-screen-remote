@@ -15,6 +15,9 @@
 #define AXP2101_REG_IRQ_STS1    0x49   /* write-1-to-clear */
 #define AXP2101_PKEY_POS        (1u << 0)
 #define AXP2101_PKEY_NEG        (1u << 1)
+#define AXP2101_PKEY_LONG       (1u << 2)
+#define AXP2101_PKEY_SHORT      (1u << 3)
+#define AXP2101_PKEY_ALL        (AXP2101_PKEY_POS | AXP2101_PKEY_NEG | AXP2101_PKEY_LONG | AXP2101_PKEY_SHORT)
 
 static const char *TAG = "pmu_axp2101";
 static i2c_master_dev_handle_t s_dev;
@@ -63,8 +66,8 @@ esp_err_t pmu_init(void)
      * Power-off is done in firmware via a long press on BOOT instead. */
     ESP_RETURN_ON_ERROR(reg_update(AXP2101_REG_PWROFF_EN, 1u << 1, 0), TAG, "disable long-press off");
 #endif
-    ESP_RETURN_ON_ERROR(reg_update(AXP2101_REG_IRQ_EN1, 0, AXP2101_PKEY_POS | AXP2101_PKEY_NEG), TAG, "enable PWR edge irq");
-    ESP_RETURN_ON_ERROR(reg_write(AXP2101_REG_IRQ_STS1, AXP2101_PKEY_POS | AXP2101_PKEY_NEG), TAG, "clear PWR edges");
+    ESP_RETURN_ON_ERROR(reg_update(AXP2101_REG_IRQ_EN1, 0, AXP2101_PKEY_ALL), TAG, "enable PWR edge irq");
+    ESP_RETURN_ON_ERROR(reg_write(AXP2101_REG_IRQ_STS1, AXP2101_PKEY_ALL), TAG, "clear PWR edges");
 
     s_ready = true;
     ESP_LOGI(TAG, "AXP2101 ready (id 0x%02x)", id);
@@ -84,9 +87,20 @@ esp_err_t pmu_poll_pwr_edges(bool *pressed, bool *released)
 
     uint8_t sts = 0;
     ESP_RETURN_ON_ERROR(reg_read(AXP2101_REG_IRQ_STS1, &sts), TAG, "read irq status");
-    sts &= (AXP2101_PKEY_POS | AXP2101_PKEY_NEG);
+    sts &= AXP2101_PKEY_ALL;
     if (sts == 0) return ESP_OK;
     ESP_RETURN_ON_ERROR(reg_write(AXP2101_REG_IRQ_STS1, sts), TAG, "clear irq status");
+    ESP_LOGD(TAG, "PWR irq status 0x%02x", sts);
+
+    /* Some AXP2101 setups latch only the short-press IRQ, not the edges:
+     * treat it as a complete tap so play/pause still works. */
+    if ((sts & (AXP2101_PKEY_POS | AXP2101_PKEY_NEG)) == 0) {
+        if (sts & AXP2101_PKEY_SHORT) {
+            *pressed = true;
+            *released = true;
+        }
+        return ESP_OK;
+    }
 
     /* PWRON is active-low: the falling (negative) edge is the press. */
     bool neg = (sts & AXP2101_PKEY_NEG) != 0;

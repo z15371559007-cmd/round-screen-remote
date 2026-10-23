@@ -13,12 +13,13 @@ static const char *TAG = "round_remote";
 void app_main(void)
 {
     ESP_LOGI(TAG, "Starting round-screen remote on Waveshare AMOLED 1.75 family BSP");
+    /* BLE first: the controller needs internal RAM before LVGL/display buffers take it.
+     * One shared BLE HID device, so the upper key can play/pause from any screen. */
+    esp_err_t err = ble_hid_start();
+    if (err != ESP_OK) ESP_LOGE(TAG, "BLE HID start failed: %s", esp_err_to_name(err));
+
     ESP_ERROR_CHECK(board_port_init());
     ESP_ERROR_CHECK(mode_router_init());
-
-    /* One shared BLE HID device, so the upper key can play/pause from any screen. */
-    esp_err_t err = ble_hid_start();
-    if (err != ESP_OK) ESP_LOGW(TAG, "BLE HID start failed: %s", esp_err_to_name(err));
 
     /* Now-playing metadata source (stub until the Wi-Fi bridge lands). */
     err = host_link_start(NULL);

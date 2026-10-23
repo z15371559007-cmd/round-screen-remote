@@ -22,6 +22,12 @@ typedef void (*ble_hid_conn_cb_t)(bool connected, void *ctx);
 esp_err_t ble_hid_start(void);
 bool ble_hid_is_connected(void);
 
+/* Radio status for the UI: stack never started / failed to start / advertising (discoverable) / connected. */
+typedef enum { BLE_HID_STATE_OFF = 0, BLE_HID_STATE_FAILED, BLE_HID_STATE_ADVERTISING, BLE_HID_STATE_CONNECTED } ble_hid_state_t;
+ble_hid_state_t ble_hid_state(void);
+/* Advertised name, shown on screen so the user knows what to pick in the host's Bluetooth list. */
+const char *ble_hid_device_name(void);
+
 /* Up to 4 listeners. Same (cb, ctx) pair is registered only once. */
 esp_err_t ble_hid_register_conn_cb(ble_hid_conn_cb_t cb, void *ctx);
 

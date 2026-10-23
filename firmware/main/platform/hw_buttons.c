@@ -64,6 +64,10 @@ static void button_task(void *arg)
                 if (pressed && !pwr_down) {
                     pwr_down = true;
                     emit(HW_BUTTON_PWR_DOWN);
+                } else if (released && !pressed && !pwr_down) {
+                    /* Missed the press edge (or edges inverted): still deliver a tap. */
+                    emit(HW_BUTTON_PWR_DOWN);
+                    pwr_down = true;
                 }
                 if (released && pwr_down) {
                     pwr_down = false;

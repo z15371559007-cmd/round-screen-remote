@@ -49,12 +49,16 @@ void button_actions_handle(hw_button_event_t event)
         if (mode == APP_MODE_PUSH_TO_TALK) {
             err = push_to_talk_press(PTT_SOURCE_KEY);
             s_ptt_from_key = (err == ESP_OK);
-            board_port_set_listening(s_ptt_from_key);
+            if (s_ptt_from_key) board_port_set_listening(true);
+            else board_port_set_ptt_failed(true);   /* screen shows why nothing was sent */
+            ESP_LOGI(TAG, "PWR PTT down -> %s", esp_err_to_name(err));
         }
         break;
     case HW_BUTTON_PWR_UP:
         if (s_ptt_from_key) {
             release_ptt_if_held();
+        } else if (mode == APP_MODE_PUSH_TO_TALK) {
+            board_port_set_ptt_failed(false);
         } else if (mode != APP_MODE_PUSH_TO_TALK) {
             err = media_remote_play_pause();   /* single click = play/pause */
         }

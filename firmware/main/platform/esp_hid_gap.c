@@ -556,16 +556,23 @@ static void ble_gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_p
      * ADVERTISEMENT
      * */
     case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-        ESP_LOGV(TAG, "BLE GAP ADV_DATA_SET_COMPLETE");
+        ESP_LOGI(TAG, "BLE GAP adv data set, status=%d", param->adv_data_cmpl.status);
         break;
 
     case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
-        ESP_LOGV(TAG, "BLE GAP ADV_START_COMPLETE");
+        if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS)
+            ESP_LOGE(TAG, "BLE GAP advertising start FAILED, status=%d", param->adv_start_cmpl.status);
+        else
+            ESP_LOGI(TAG, "BLE GAP advertising started");
         break;
 
     /*
      * AUTHENTICATION
      * */
+    case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
+        ESP_LOGI(TAG, "BLE GAP scan response set, status=%d", param->scan_rsp_data_cmpl.status);
+        break;
+
     case ESP_GAP_BLE_AUTH_CMPL_EVT:
         if (!param->ble_security.auth_cmpl.success) {
             // if AUTH ERROR,hid maybe don't work.
@@ -661,7 +668,7 @@ esp_err_t esp_hid_ble_gap_adv_init(uint16_t appearance, const char *device_name)
     esp_ble_adv_data_t ble_adv_data = {
         .set_scan_rsp = false,
         .include_name = true,
-        .include_txpower = true,
+        .include_txpower = false,
         .min_interval = 0x0006, //slave connection min interval, Time = min_interval * 1.25 msec
         .max_interval = 0x0010, //slave connection max interval, Time = max_interval * 1.25 msec
         .appearance = appearance,
@@ -715,6 +722,19 @@ esp_err_t esp_hid_ble_gap_adv_init(uint16_t appearance, const char *device_name)
 
     if ((ret = esp_ble_gap_config_adv_data(&ble_adv_data)) != ESP_OK) {
         ESP_LOGE(TAG, "GAP config_adv_data failed: %d", ret);
+        return ret;
+    }
+
+    /* Full name again in the scan response, so hosts that read it (macOS) always see it whole. */
+    esp_ble_adv_data_t scan_rsp = {
+        .set_scan_rsp = true,
+        .include_name = true,
+        .include_txpower = false,
+        .appearance = appearance,
+        .flag = 0,
+    };
+    if ((ret = esp_ble_gap_config_adv_data(&scan_rsp)) != ESP_OK) {
+        ESP_LOGE(TAG, "GAP config scan response failed: %d", ret);
         return ret;
     }
 

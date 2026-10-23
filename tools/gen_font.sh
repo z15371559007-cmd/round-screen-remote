@@ -12,11 +12,11 @@ for f in glob.glob(os.path.join(sys.argv[1],'**/*.c'),recursive=True):
     if '/fonts/' in f: continue
     for m in re.findall(r'"([^"\n]*)"',open(f,encoding='utf-8').read()):
         cs|={c for c in m if ord(c)>0x7f}
-cs|=set("…、，。：？！（）·—“”")
+cs|=set("…、，。：？！（）·—“”●○")
 print(''.join(sorted(cs)),end='')
 PY
 )
-npx lv_font_conv --font "$FONT" --size 24 --bpp 4 --format lvgl \
+npx lv_font_conv --font "$FONT" --size 24 --bpp 4 --format lvgl --no-compress \
   -r 0x20-0x7E --symbols "$CHARS" --lv-include lvgl.h \
   --lv-font-name rsr_font_cjk_24 -o "$ROOT/firmware/main/fonts/rsr_font_cjk_24.c"
 echo "glyphs: $CHARS"

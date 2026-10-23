@@ -18,6 +18,8 @@
 
 static const char *TAG = "ble_hid";
 static bool s_started;
+static volatile bool s_failed;
+static volatile bool s_advertising;
 static esp_hidd_dev_t *s_hid_dev;
 static volatile bool s_ptt_pressed;
 static SemaphoreHandle_t s_lock;
@@ -62,7 +64,7 @@ static esp_hid_device_config_t s_device_config = {
     .vendor_id = 0x303A,
     .product_id = 0x1001,
     .version = 0x0101, /* bumped when the report map changed (F13 support) */
-    .device_name = "Round Screen Remote",
+    .device_name = "Omarchy Orb",
     .manufacturer_name = "Personal Project",
     .serial_number = "RSR-01",
     .report_maps = s_report_maps,
@@ -104,12 +106,13 @@ static void hid_event_handler(void *arg, esp_event_base_t base, int32_t id, void
     case ESP_HIDD_START_EVENT: {
         esp_err_t err = esp_hid_ble_gap_adv_start();
         if (err != ESP_OK) ESP_LOGE(TAG, "BLE advertising start failed: %s", esp_err_to_name(err));
-        else ESP_LOGI(TAG, "BLE HID advertising");
+        else { s_advertising = true; ESP_LOGI(TAG, "BLE HID advertising as \"%s\" (discoverable)", s_device_config.device_name); }
         break;
     }
     case ESP_HIDD_CONNECT_EVENT:
         /* A fresh link never inherits a held PTT key. */
         s_ptt_pressed = false;
+        s_advertising = false;
         ESP_LOGI(TAG, "BLE HID host connected");
         notify_conn(true);
         break;
@@ -119,6 +122,7 @@ static void hid_event_handler(void *arg, esp_event_base_t base, int32_t id, void
         ESP_LOGI(TAG, "BLE HID host disconnected (reason %d)", event->disconnect.reason);
         notify_conn(false);
         if (esp_hid_ble_gap_adv_start() != ESP_OK) ESP_LOGW(TAG, "BLE advertising restart failed");
+        else { s_advertising = true; ESP_LOGI(TAG, "BLE HID advertising again"); }
         break;
     default:
         break;
@@ -131,28 +135,46 @@ esp_err_t ble_hid_start(void)
     if (!s_lock) s_lock = xSemaphoreCreateMutexStatic(&s_lock_buf);
 
     esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        /* Leftover NVS from the factory/demo firmware (merge_bin does not wipe it). It holds
+         * nothing of ours except BLE bonds, so reformat instead of silently running without BLE. */
+        ESP_LOGW(TAG, "NVS unusable (%s), probably left by previous firmware; erasing NVS partition", esp_err_to_name(err));
+        err = nvs_flash_erase();
+        if (err == ESP_OK) err = nvs_flash_init();
+    }
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS init failed (%s); refusing to erase existing data", esp_err_to_name(err));
+        ESP_LOGE(TAG, "NVS init failed (%s); BLE disabled", esp_err_to_name(err));
+        s_failed = true;
         return err;
     }
 
     err = esp_hid_gap_init(HID_DEV_MODE);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) { ESP_LOGE(TAG, "esp_hid_gap_init failed: %s", esp_err_to_name(err)); s_failed = true; return err; }
 
     err = esp_hid_ble_gap_adv_init(ESP_HID_APPEARANCE_KEYBOARD, s_device_config.device_name);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) { ESP_LOGE(TAG, "esp_hid_ble_gap_adv_init failed: %s", esp_err_to_name(err)); s_failed = true; return err; }
 
     err = esp_ble_gatts_register_callback(esp_hidd_gatts_event_handler);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) { ESP_LOGE(TAG, "esp_ble_gatts_register_callback failed: %s", esp_err_to_name(err)); s_failed = true; return err; }
 
     err = esp_hidd_dev_init(&s_device_config, ESP_HID_TRANSPORT_BLE, hid_event_handler, &s_hid_dev);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) { ESP_LOGE(TAG, "esp_hidd_dev_init failed: %s", esp_err_to_name(err)); s_failed = true; return err; }
 
     s_started = true;
     ESP_LOGI(TAG, "BLE HID ready; PTT HID usage=0x%02X modifiers=0x%02X (0 means unconfigured)",
              CONFIG_ROUND_REMOTE_PTT_HID_USAGE, CONFIG_ROUND_REMOTE_PTT_HID_MODIFIERS);
     return ESP_OK;
 }
+
+ble_hid_state_t ble_hid_state(void)
+{
+    if (ble_hid_is_connected()) return BLE_HID_STATE_CONNECTED;
+    if (s_failed) return BLE_HID_STATE_FAILED;
+    if (s_advertising) return BLE_HID_STATE_ADVERTISING;
+    return BLE_HID_STATE_OFF;
+}
+
+const char *ble_hid_device_name(void) { return s_device_config.device_name; }
 
 bool ble_hid_is_connected(void)
 {

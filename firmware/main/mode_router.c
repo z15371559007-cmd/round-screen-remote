@@ -5,6 +5,7 @@
 #include "media_remote.h"
 #include "push_to_talk.h"
 #include "pet_standby.h"
+#include "badge.h"
 
 static const char *TAG = "mode_router";
 static app_mode_t s_mode = APP_MODE_HOME;
@@ -17,6 +18,7 @@ const char *app_mode_name(app_mode_t mode)
     case APP_MODE_MEDIA_REMOTE: return "media_remote";
     case APP_MODE_PUSH_TO_TALK: return "push_to_talk";
     case APP_MODE_HOME: return "home";
+    case APP_MODE_BADGE: return "badge";
     default: return "invalid";
     }
 }
@@ -27,6 +29,7 @@ static void leave_mode(app_mode_t mode)
     case APP_MODE_STANDBY_PET: pet_standby_exit(); break;
     case APP_MODE_MEDIA_REMOTE: media_remote_exit(); break;
     case APP_MODE_PUSH_TO_TALK: push_to_talk_exit(); break;
+    case APP_MODE_BADGE: badge_exit(); break;
     case APP_MODE_HOME: break;
     default: break;
     }
@@ -38,6 +41,7 @@ static esp_err_t enter_mode(app_mode_t mode)
     case APP_MODE_STANDBY_PET: return pet_standby_enter();
     case APP_MODE_MEDIA_REMOTE: return media_remote_enter();
     case APP_MODE_PUSH_TO_TALK: return push_to_talk_enter();
+    case APP_MODE_BADGE: return badge_enter();
     case APP_MODE_HOME: return ESP_OK;
     default: return ESP_ERR_INVALID_ARG;
     }
@@ -60,7 +64,7 @@ esp_err_t mode_router_switch_to(app_mode_t mode)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (mode < APP_MODE_STANDBY_PET || mode > APP_MODE_HOME) {
+    if (mode < APP_MODE_STANDBY_PET || mode > APP_MODE_BADGE) {
         return ESP_ERR_INVALID_ARG;
     }
     if (mode == s_mode) {
