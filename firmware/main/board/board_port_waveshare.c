@@ -318,7 +318,14 @@ static void main_button_event(lv_event_t *event)
     } else if (s_requested_mode == APP_MODE_HOME && code == LV_EVENT_CLICKED) {
         err = mode_router_switch_to(APP_MODE_MEDIA_REMOTE);
     } else if (s_requested_mode == APP_MODE_BADGE_TOOLS && code == LV_EVENT_CLICKED) {
-        badge_tools_primary((uint64_t)esp_timer_get_time());
+        badge_tools_snapshot_t tools = {0};
+        badge_tools_snapshot((uint64_t)esp_timer_get_time(), &tools);
+        if (tools.page == BADGE_TOOL_KEY_RING) {
+            const badge_tool_key_t *key = badge_tools_key_for_index(tools.key_index);
+            err = key ? ble_hid_send_key(key->modifiers, key->usage) : ESP_ERR_INVALID_ARG;
+        } else {
+            badge_tools_primary((uint64_t)esp_timer_get_time());
+        }
     }
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE && err != ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGW(TAG, "Control unavailable: %s", esp_err_to_name(err));
@@ -330,8 +337,16 @@ static void media_control_event(lv_event_t *event)
     if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
     const media_command_t command = (media_command_t)(intptr_t)lv_event_get_user_data(event);
     if (s_requested_mode == APP_MODE_BADGE_TOOLS) {
-        if (command == MEDIA_COMMAND_PREVIOUS) badge_tools_reset((uint64_t)esp_timer_get_time());
-        else if (command == MEDIA_COMMAND_NEXT) badge_tools_next_page();
+        badge_tools_snapshot_t tools = {0};
+        badge_tools_snapshot((uint64_t)esp_timer_get_time(), &tools);
+        if (tools.page == BADGE_TOOL_KEY_RING) {
+            if (command == MEDIA_COMMAND_PREVIOUS) badge_tools_step_key(-1);
+            else if (command == MEDIA_COMMAND_NEXT) badge_tools_step_key(1);
+        } else if (command == MEDIA_COMMAND_PREVIOUS) {
+            badge_tools_reset((uint64_t)esp_timer_get_time());
+        } else if (command == MEDIA_COMMAND_NEXT) {
+            badge_tools_next_page();
+        }
         return;
     }
     esp_err_t err = media_remote_send(command);
@@ -421,13 +436,16 @@ static void refresh_ui(lv_timer_t *timer)
     const bool ptt_ok = ble_hid_ptt_key_configured();
     badge_tools_snapshot_t tools = {0};
     if (mode == APP_MODE_BADGE_TOOLS) badge_tools_snapshot((uint64_t)esp_timer_get_time(), &tools);
+    const uint64_t tools_payload = tools.page == BADGE_TOOL_KEY_RING
+                                      ? ((uint64_t)(tools.key_index & 0x7u) << 15)
+                                      : ((uint64_t)tools.running << 31) |
+                                        ((uint64_t)(tools.elapsed_ms / 1000u & 0xFFFFu) << 15) |
+                                        (uint64_t)(tools.bubbles_popped & 0x7FFFu);
     const uint64_t signature = ((uint64_t)ble_state << 48) | ((uint64_t)mode << 40) |
                                ((uint64_t)connected << 39) | ((uint64_t)listening << 38) |
                                ((uint64_t)touch_down << 37) | ((uint64_t)failed << 36) |
                                ((uint64_t)ptt_ok << 35) | ((uint64_t)tools.page << 32) |
-                               ((uint64_t)tools.running << 31) |
-                               ((uint64_t)(tools.elapsed_ms / 1000u & 0xFFFFu) << 15) |
-                               (uint64_t)(tools.bubbles_popped & 0x7FFFu);
+                               tools_payload;
     if (signature == s_ui_signature) return;   /* nothing changed: no redraw */
     s_ui_signature = signature;
 
@@ -438,6 +456,8 @@ static void refresh_ui(lv_timer_t *timer)
     const bool is_media = (mode == APP_MODE_MEDIA_REMOTE);
     const bool is_tools = (mode == APP_MODE_BADGE_TOOLS);
     const bool tools_stopwatch = tools.page == BADGE_TOOL_STOPWATCH;
+    const bool tools_bubble = tools.page == BADGE_TOOL_BUBBLE;
+    const bool tools_key_ring = tools.page == BADGE_TOOL_KEY_RING;
 
     set_hidden(s_media_controls, !is_media);
     set_hidden(s_prev_button, !(is_media || is_tools));
@@ -448,8 +468,8 @@ static void refresh_ui(lv_timer_t *timer)
         lv_obj_t *right = lv_obj_get_child(s_next_button, 0);
         set_label_font(left, UI_FONT);
         set_label_font(right, UI_FONT);
-        set_label(left, "复位");
-        set_label(right, "换页");
+        set_label(left, tools_key_ring ? "上键" : "复位");
+        set_label(right, tools_key_ring ? "下键" : "换页");
     } else {
         lv_obj_t *left = lv_obj_get_child(s_prev_button, 0);
         lv_obj_t *right = lv_obj_get_child(s_next_button, 0);
@@ -494,10 +514,16 @@ static void refresh_ui(lv_timer_t *timer)
         set_deco(false, false);
         set_bg_color(s_center_button, COLOR_BUTTON);
         set_border_color(s_center_button, COLOR_AMBER);
-        set_label(s_title, tools_stopwatch ? "随身秒表" : "泡泡纸");
-        set_label(s_subtitle, tools_stopwatch ? "The Badge · 轻量工具" : "The Badge · 轻松一下");
+        set_label(s_title, tools_stopwatch ? "随身秒表" : tools_bubble ? "泡泡纸" : "按键");
+        set_label(s_subtitle, tools_stopwatch ? "The Badge · 轻量工具" :
+                            tools_bubble ? "The Badge · 轻松一下" : "BLE HID");
         set_label_font(s_center_label, UI_FONT);
-        if (tools_stopwatch) {
+        if (tools_key_ring) {
+            const badge_tool_key_t *key = badge_tools_key_for_index(tools.key_index);
+            set_label(s_center_label, key ? key->label : "ESC");
+            set_label(s_state, connected ? "按下发送" : "请先配对");
+            set_label(s_note, "L/R · TAP");
+        } else if (tools_stopwatch) {
             static char clock_text[24];
             const uint64_t seconds = tools.elapsed_ms / 1000u;
             snprintf(clock_text, sizeof clock_text, "%02llu:%02llu:%02llu",

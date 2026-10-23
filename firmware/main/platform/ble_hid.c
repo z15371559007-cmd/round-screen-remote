@@ -233,6 +233,33 @@ esp_err_t ble_hid_set_pressed(bool pressed)
     return err;
 }
 
+esp_err_t ble_hid_send_key(uint8_t modifiers, uint8_t usage)
+{
+    if (usage < 0x04 || usage > 0xDF) return ESP_ERR_INVALID_ARG;
+    lock();
+    if (!ble_hid_is_connected()) {
+        unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    /* A one-shot key must never replace the currently held push-to-talk key report. */
+    if (s_ptt_pressed) {
+        unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t err = send_keyboard_report(modifiers, usage);
+    if (err == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(25));
+        err = send_keyboard_report(0, 0);
+        if (err != ESP_OK && ble_hid_is_connected()) {
+            /* Best-effort second key-up if the first release notification was rejected. */
+            (void)send_keyboard_report(0, 0);
+        }
+    }
+    unlock();
+    return err;
+}
+
 static uint16_t consumer_usage(ble_hid_media_command_t command)
 {
     switch (command) {

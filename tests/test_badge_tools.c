@@ -32,10 +32,32 @@ int main(void)
     assert(s.bubbles_popped == 0);
 
     badge_tools_next_page();
-    badge_tools_reset(15000000);
-    badge_tools_primary(16000000);
+    badge_tools_snapshot(15000000, &s);
+    assert(s.page == BADGE_TOOL_KEY_RING && s.key_index == 0);
+    assert(badge_tools_key_count() == 8);
+    const badge_tool_key_t *key = badge_tools_key_for_index(s.key_index);
+    assert(key && key->usage == 0x29 && key->modifiers == 0); /* Escape */
+    badge_tools_step_key(-1);
+    badge_tools_snapshot(15000000, &s);
+    assert(s.key_index == 7);
+    key = badge_tools_key_for_index(s.key_index);
+    assert(key && key->usage == 0x4F); /* Right */
+    badge_tools_step_key(1);
+    badge_tools_snapshot(15000000, &s);
+    assert(s.key_index == 0);
+    badge_tools_primary(16000000); /* Key ring selection does not alter timer/toy state. */
+    badge_tools_reset(16000000);
     badge_tools_snapshot(17000000, &s);
+    assert(s.page == BADGE_TOOL_KEY_RING && s.key_index == 0);
+
+    badge_tools_next_page();
+    badge_tools_snapshot(18000000, &s);
+    assert(s.page == BADGE_TOOL_STOPWATCH);
+    badge_tools_reset(18000000);
+    badge_tools_primary(19000000);
+    badge_tools_snapshot(20000000, &s);
     assert(s.page == BADGE_TOOL_STOPWATCH && s.elapsed_ms == 1000);
+    assert(badge_tools_key_for_index(8) == NULL);
     puts("badge tools state tests passed");
     return 0;
 }

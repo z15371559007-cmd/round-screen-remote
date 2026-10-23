@@ -40,6 +40,8 @@ uint8_t ble_hid_ptt_usage(void);
  * Returns ESP_ERR_INVALID_STATE when pressing without a host, ESP_ERR_NOT_SUPPORTED if usage is 0. */
 esp_err_t ble_hid_set_pressed(bool pressed);
 bool ble_hid_ptt_is_down(void);
+/* One-shot keyboard tap. Refuses to overwrite a held PTT key; usage is a standard key usage. */
+esp_err_t ble_hid_send_key(uint8_t modifiers, uint8_t usage);
 
 /* Emits a standard Bluetooth HID Consumer Control tap (press + ~25 ms + release). */
 esp_err_t ble_hid_send_media(ble_hid_media_command_t command);
