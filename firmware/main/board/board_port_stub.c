@@ -36,8 +36,3 @@ void board_port_set_ptt_failed(bool failed)
 {
     (void)failed;
 }
-
-void board_port_badge_show_frame(const void *image_dsc)
-{
-    (void)image_dsc;
-}

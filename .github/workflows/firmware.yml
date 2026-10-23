@@ -21,22 +21,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run badge format and upload-page checks
+      - name: Run firmware host tests and disabled-player regression guard
         run: |
           cc -std=c11 -Wall -Wextra -Werror -Ifirmware/main/modules tests/test_badge_format.c -o /tmp/test_badge_format
           /tmp/test_badge_format
           cc -std=c11 -Wall -Wextra -Werror -Ifirmware/main/modules tests/test_badge_tools.c firmware/main/modules/badge_tools.c -o /tmp/test_badge_tools
           /tmp/test_badge_tools
-          python3 tools/check_badge_entry.py
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          source = Path("firmware/main/web/upload.html").read_text()
-          scripts = re.findall(r"<script>(.*?)</script>", source, re.S)
-          assert len(scripts) == 1, "expected exactly one upload script"
-          Path("/tmp/badge_upload.js").write_text(scripts[0])
-          PY
-          node --check /tmp/badge_upload.js
+          python3 tools/check_badge_disabled.py
 
       - name: Check UI font covers all strings
         run: python3 tools/check_font.py
