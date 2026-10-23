@@ -11,6 +11,10 @@ idf_component_register(
         "platform/ble_hid.c"
         "platform/esp_hid_gap.c"
         "platform/pet_voice_backend_stub.c"
-    INCLUDE_DIRS "." "board" "modules" "platform"
-    REQUIRES log esp_common bt esp_hid nvs_flash waveshare__esp32_s3_touch_amoled_1_75 lvgl
+        "platform/pmu_axp2101.c"
+        "platform/hw_buttons.c"
+        "modules/button_actions.c"
+        "fonts/rsr_font_cjk_24.c"
+    INCLUDE_DIRS "." "board" "modules" "platform" "fonts"
+    REQUIRES log esp_common esp_timer esp_driver_gpio esp_driver_i2c bt esp_hid nvs_flash waveshare__esp32_s3_touch_amoled_1_75 lvgl
 )
