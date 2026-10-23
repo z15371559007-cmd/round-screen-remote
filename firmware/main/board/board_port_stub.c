@@ -23,3 +23,11 @@ void board_port_set_listening(bool listening)
 {
     ESP_LOGI(TAG, "Pet listening indicator: %s", listening ? "on" : "off");
 }
+
+void board_port_ui_lock(void) {}
+void board_port_ui_unlock(void) {}
+
+void board_port_show_power_off(void)
+{
+    ESP_LOGI(TAG, "Power-off requested");
+}

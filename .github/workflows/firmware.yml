@@ -1,0 +1,67 @@
+name: firmware
+
+on:
+  push:
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build firmware (ESP-IDF v5.5.1)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.1
+          target: esp32s3
+          path: firmware
+          command: set -o pipefail; idf.py build 2>&1 | tee build.log && cd build && python -m esptool --chip esp32s3 merge_bin -o ../round-remote-full.bin @flash_args
+
+      - name: Post build log on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "构建失败：${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}"
+            echo
+            echo '```'
+            if [ -f firmware/build.log ]; then
+              grep -nE "error:|Error|ERROR|undefined reference" firmware/build.log | head -60
+              echo "----- tail -----"
+              tail -n 60 firmware/build.log
+            else
+              echo "build.log missing"
+            fi
+            echo '```'
+          } > body.md
+          gh issue comment 2 --repo "$GITHUB_REPOSITORY" --body-file body.md
+
+      - name: Publish flashable image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="firmware-${GITHUB_REF_NAME//\//-}"
+          cp firmware/round-remote-full.bin round-remote-full.bin
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release create "$TAG" round-remote-full.bin \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "固件 ${GITHUB_REF_NAME} (${GITHUB_SHA::7})" \
+            --notes "整包镜像，从地址 0x0 烧录 round-remote-full.bin。Chrome 打开 https://espressif.github.io/esptool-js/ 连接板子即可刷，无需装环境。"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: round-remote-firmware
+          path: firmware/round-remote-full.bin

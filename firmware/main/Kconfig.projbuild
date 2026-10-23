@@ -33,4 +33,23 @@ config ROUND_REMOTE_PTT_HID_MODIFIERS
         Optional keyboard modifier bits (bit 0 Ctrl, 1 Shift, 2 Alt, 3 GUI, 4-7 right-side equivalents).
         This remains zero unless explicitly configured.
 
+config ROUND_REMOTE_BOOT_LONG_PRESS_MS
+    int "Lower key (BOOT) long-press power-off threshold (ms)"
+    range 800 6000
+    default 2000
+
+config ROUND_REMOTE_PWR_DISABLE_HW_LONG_OFF
+    bool "Disable AXP2101 hardware long-press power-off on the upper key (PWR)"
+    default y
+    help
+        The upper key is held for push-to-talk, so the PMU's own long-hold power-off is
+        disabled and power-off moves to a long press on the lower key. Turn off to restore
+        the PMU default.
+
+config ROUND_REMOTE_PWR_EDGE_INVERT
+    bool "Swap upper-key (PWR) press/release edge polarity"
+    default n
+    help
+        Only needed if PTT starts on release instead of press on real hardware.
+
 endmenu
