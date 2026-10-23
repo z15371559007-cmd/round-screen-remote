@@ -393,6 +393,9 @@ static bool refresh_badge(void)
     case BADGE_STATE_RECEIVING:
         snprintf(text, sizeof text, "正在接收视频\n%d%%", pct);
         break;
+    case BADGE_STATE_STARTING:
+        snprintf(text, sizeof text, "吧唧启动中");
+        break;
     case BADGE_STATE_ERROR:
         snprintf(text, sizeof text, "吧唧启动失败\n请看串口日志");
         break;

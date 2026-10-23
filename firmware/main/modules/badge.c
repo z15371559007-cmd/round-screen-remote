@@ -34,11 +34,14 @@ extern const char badge_upload_html[] asm("_binary_upload_html_start");
 static const esp_partition_t *s_part;
 static SemaphoreHandle_t s_idx_lock;
 static SemaphoreHandle_t s_upload_lock;
+static SemaphoreHandle_t s_start_lock;
 static uint32_t *s_offsets;            /* frame offsets (points at the u32 length) */
 static uint32_t s_count;
 static uint16_t s_fps = 10;
 static volatile bool s_valid;
 static volatile bool s_active;
+static volatile bool s_starting;
+static volatile bool s_start_error;
 static volatile bool s_receiving;
 static volatile int s_progress;
 static volatile uint32_t s_gen;
@@ -50,6 +53,9 @@ static lv_image_dsc_t s_dsc[2];
 static bool s_net_ready;
 static bool s_wifi_on;
 static httpd_handle_t s_httpd;
+
+static bool init_once(void);
+static void start_wifi(void);
 
 /* Called with s_idx_lock held. v1 is read-only compatibility; new uploads use v2. */
 static bool scan_clip(const uint8_t *header_override, size_t wire_size, bool validate_jpegs)
@@ -134,6 +140,34 @@ static bool scan_clip(const uint8_t *header_override, size_t wire_size, bool val
 static void player_task(void *arg)
 {
     const uint32_t gen = (uint32_t)(uintptr_t)arg;
+
+    /* Entry is called from the LVGL button event. Keep PSRAM allocation, flash scan,
+       and Wi-Fi/AP startup out of that event task: all of them can take noticeable time.
+       Serialize first-time initialization if the user leaves and re-enters quickly. */
+    if (!s_start_lock) goto done;
+    xSemaphoreTake(s_start_lock, portMAX_DELAY);
+    if (!s_active || s_gen != gen) {
+        xSemaphoreGive(s_start_lock);
+        goto done;
+    }
+    if (!init_once()) {
+        if (s_gen == gen) {
+            s_start_error = true;
+            s_starting = false;
+            ESP_LOGE(TAG, "badge startup failed during player initialization");
+        }
+        xSemaphoreGive(s_start_lock);
+        goto done;
+    }
+    if (s_active && s_gen == gen) start_wifi();
+    if (s_gen == gen) s_starting = false;
+    if (!s_active && s_wifi_on) {
+        esp_wifi_stop();
+        s_wifi_on = false;
+    }
+    xSemaphoreGive(s_start_lock);
+    if (!s_active || s_gen != gen) goto done;
+
     uint32_t i = 0;
     uint32_t clip_gen = s_clip_gen;
     int back = 0;
@@ -176,6 +210,11 @@ static void player_task(void *arg)
         int64_t left_ms = (1000 / fps) - (t2 - t0) / 1000;
         /* Always leave real idle time so LVGL and IDLE tasks run (no task_wdt). */
         vTaskDelay(pdMS_TO_TICKS(left_ms > 20 ? left_ms : 20));
+    }
+done:
+    if (s_gen == gen) {
+        s_active = false;
+        s_starting = false;
     }
     vTaskDelete(NULL);
 }
@@ -417,12 +456,21 @@ static bool init_once(void)
 
 esp_err_t badge_enter(void)
 {
-    if (!init_once()) return ESP_ERR_NO_MEM;
+    if (!s_start_lock) s_start_lock = xSemaphoreCreateMutex();
+    if (!s_start_lock) {
+        s_start_error = true;
+        return ESP_ERR_NO_MEM;
+    }
+    s_start_error = false;
+    s_starting = true;
     s_active = true;
     const uint32_t gen = ++s_gen;
-    start_wifi();
+    /* The worker performs PSRAM allocation/partition scan and starts Wi-Fi. */
     if (xTaskCreatePinnedToCore(player_task, "badge_play", 16384, (void *)(uintptr_t)gen, 3, NULL, 1) != pdPASS) {
         ESP_LOGE(TAG, "player task create failed");
+        s_active = false;
+        s_starting = false;
+        s_start_error = true;
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
@@ -431,6 +479,7 @@ esp_err_t badge_enter(void)
 void badge_exit(void)
 {
     s_active = false;
+    s_starting = false;
     s_gen++;
     if (s_wifi_on && !s_receiving) {
         esp_wifi_stop();
@@ -441,6 +490,8 @@ void badge_exit(void)
 
 badge_state_t badge_state(void)
 {
+    if (s_starting) return BADGE_STATE_STARTING;
+    if (s_start_error) return BADGE_STATE_ERROR;
     if (s_receiving) return BADGE_STATE_RECEIVING;
     if (!s_part || !s_jpeg) return BADGE_STATE_ERROR;
     return s_valid ? BADGE_STATE_PLAYING : BADGE_STATE_NO_VIDEO;
