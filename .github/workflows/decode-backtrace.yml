@@ -1,0 +1,40 @@
+name: decode-backtrace
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: commit to rebuild
+        required: true
+      backtrace:
+        description: backtrace addresses (space separated)
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  decode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Build and decode
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.1
+          target: esp32s3
+          path: firmware
+          command: >-
+            idf.py build > /dev/null 2>&1;
+            ELF=$(ls build/*.elf | head -1);
+            echo "ELF=$ELF" > ../decoded.txt;
+            for a in ${{ inputs.backtrace }}; do pc=${a%%:*}; echo "== $pc" >> ../decoded.txt; xtensa-esp32s3-elf-addr2line -pfiaC -e "$ELF" $pc >> ../decoded.txt 2>&1; done
+      - name: Post
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo "Backtrace decode @ ${{ inputs.ref }}"; echo '```'; cat decoded.txt; echo '```'; } > body.md
+          gh issue comment 2 --repo "$GITHUB_REPOSITORY" --body-file body.md
