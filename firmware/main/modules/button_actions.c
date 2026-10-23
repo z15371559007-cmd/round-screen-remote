@@ -59,7 +59,7 @@ void button_actions_handle(hw_button_event_t event)
             release_ptt_if_held();
         } else if (mode == APP_MODE_PUSH_TO_TALK) {
             board_port_set_ptt_failed(false);
-        } else if (mode != APP_MODE_PUSH_TO_TALK) {
+        } else if (mode != APP_MODE_PUSH_TO_TALK && mode != APP_MODE_BADGE_TOOLS) {
             err = media_remote_play_pause();   /* single click = play/pause */
         }
         break;
