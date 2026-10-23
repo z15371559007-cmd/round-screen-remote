@@ -28,7 +28,7 @@
 
 ## The Badge 风格小工具
 
-固件已加入秒表和泡泡纸两个独立模块，保留媒体/PTT/视频功能及现有 UI 语言；蓝牙空鼠、HID 快捷键环、录音导出、闹钟和其他小游戏仍是后续候选，未声称已集成。参考项目与许可证说明见 [`docs/third-party-notices.md`](docs/third-party-notices.md)。
+固件已加入秒表和泡泡纸两个独立模块，并已集成 BLE HID 8 键快捷键环（ESC、ENTER、TAB、SPACE、方向键）；保留媒体/PTT/视频功能及现有 UI 语言。蓝牙空鼠/触控板、录音/导出、闹钟/时钟和其他小游戏仍未集成。参考项目与许可证说明见 [`docs/third-party-notices.md`](docs/third-party-notices.md)。
 
 ## 当前边界
 
