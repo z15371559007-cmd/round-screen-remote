@@ -17,3 +17,5 @@ void board_port_set_ptt_failed(bool failed);
 void board_port_ui_lock(void);
 void board_port_ui_unlock(void);
 void board_port_show_power_off(void);
+/* Badge player: swap in a decoded 466x466 RGB565 frame (takes the UI lock itself). */
+void board_port_badge_show_frame(const void *image_dsc);

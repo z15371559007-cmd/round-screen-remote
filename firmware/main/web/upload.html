@@ -1,0 +1,46 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Omarchy Orb 吧唧</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;background:#080909;color:#F2EEE9;margin:0;padding:20px;max-width:480px;margin:auto}
+h1{font-size:20px;font-weight:600}label{display:block;margin:14px 0 4px;color:#928B85;font-size:14px}
+input[type=range]{width:100%}#pv{width:240px;height:240px;border-radius:50%;background:#171310;display:block;margin:16px auto;border:3px solid #45352E}
+button{width:100%;padding:14px;margin-top:18px;border:0;border-radius:12px;background:#F15B3D;color:#fff;font-size:17px}
+button:disabled{opacity:.4}#msg{margin-top:14px;text-align:center;color:#FF9B73;min-height:1.4em}
+</style></head><body>
+<h1>上传吧唧视频</h1>
+<input type="file" id="f" accept="video/*,image/gif">
+<canvas id="pv" width="466" height="466"></canvas>
+<label>起点 <span id="stv">0.0</span> 秒</label><input type="range" id="st" min="0" max="0" step="0.1" value="0">
+<label>时长 <span id="duv">6</span> 秒（最多 10 秒）</label><input type="range" id="du" min="1" max="10" step="0.5" value="6">
+<label>缩放 <span id="zmv">1.0</span>×</label><input type="range" id="zm" min="1" max="3" step="0.05" value="1">
+<label>左右 / 上下</label><input type="range" id="px" min="-1" max="1" step="0.02" value="0"><input type="range" id="py" min="-1" max="1" step="0.02" value="0">
+<label>帧率</label><select id="fp"><option>8</option><option selected>10</option><option>12</option><option>15</option></select>
+<button id="go" disabled>转换并上传</button>
+<div id="msg"></div>
+<script>
+const S=466,$=id=>document.getElementById(id),v=document.createElement('video');
+v.muted=true;v.playsInline=true;v.preload='auto';
+const pv=$('pv'),pc=pv.getContext('2d'),wc=document.createElement('canvas');wc.width=wc.height=S;const wx=wc.getContext('2d');
+let busy=false;
+function draw(ctx){const vw=v.videoWidth,vh=v.videoHeight;if(!vw)return;const z=+$('zm').value,s=Math.min(vw,vh)/z;
+const sx=(vw-s)/2*(1+ +$('px').value),sy=(vh-s)/2*(1+ +$('py').value);ctx.fillStyle='#000';ctx.fillRect(0,0,S,S);ctx.drawImage(v,sx,sy,s,s,0,0,S,S);}
+function seek(t){return new Promise(r=>{let d=false;const f=()=>{if(!d){d=true;r()}};v.onseeked=f;setTimeout(f,1500);v.currentTime=Math.min(t,Math.max(0,v.duration-0.05));});}
+async function preview(){if(busy)return;$('stv').textContent=(+$('st').value).toFixed(1);$('duv').textContent=$('du').value;$('zmv').textContent=(+$('zm').value).toFixed(1);await seek(+$('st').value);draw(pc);}
+['st','du','zm','px','py'].forEach(i=>$(i).oninput=preview);
+$('f').onchange=()=>{const file=$('f').files[0];if(!file)return;v.src=URL.createObjectURL(file);$('msg').textContent='读取中…';
+v.onloadedmetadata=async()=>{try{await v.play();v.pause();}catch(e){}$('st').max=Math.max(0,v.duration-0.5).toFixed(1);
+$('du').max=Math.max(1,Math.min(10,v.duration)).toFixed(1);$('du').value=Math.min(6,+$('du').max);$('go').disabled=false;$('msg').textContent='';preview();};};
+$('go').onclick=async()=>{busy=true;$('go').disabled=true;const fps=+$('fp').value,st=+$('st').value,n=Math.max(1,Math.round(+$('du').value*fps)),fr=[];let tot=16;
+for(let i=0;i<n;i++){$('msg').textContent='转换 '+(i+1)+' / '+n;await seek(st+i/fps);draw(wx);pc.drawImage(wc,0,0);
+let q=.72,b;do{b=new Uint8Array(await (await new Promise(r=>wc.toBlob(r,'image/jpeg',q))).arrayBuffer());q-=.1;}while(b.length>250000&&q>.3);
+fr.push(b);tot+=4+((b.length+3)&~3);}
+let max=8388608;try{max=(await (await fetch('/info')).json()).max;}catch(e){}
+if(tot>max){$('msg').textContent='太大了（'+(tot>>20)+' MB），请缩短时长或降低帧率';busy=false;$('go').disabled=false;return;}
+const buf=new Uint8Array(tot),dv=new DataView(buf.buffer);buf.set([79,82,66,86]);dv.setUint16(4,1,true);dv.setUint16(6,fps,true);dv.setUint16(8,S,true);dv.setUint16(10,S,true);dv.setUint32(12,n,true);
+let o=16;for(const b of fr){dv.setUint32(o,b.length,true);buf.set(b,o+4);o+=4+((b.length+3)&~3);}
+const x=new XMLHttpRequest();x.open('POST','/upload');x.upload.onprogress=e=>{$('msg').textContent='上传 '+Math.round(e.loaded*100/e.total)+'%';};
+x.onload=()=>{$('msg').textContent=x.status==200?'完成！已在吧唧上播放':'上传失败：'+x.responseText;busy=false;$('go').disabled=false;};
+x.onerror=()=>{$('msg').textContent='上传失败，请确认手机连着 Omarchy-Orb';busy=false;$('go').disabled=false;};
+x.send(buf);};
+</script></body></html>
