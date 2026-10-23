@@ -55,11 +55,12 @@ jobs:
         run: |
           TAG="firmware-${GITHUB_REF_NAME//\//-}"
           cp firmware/round-remote-full.bin round-remote-full.bin
+          cp firmware/build/*.elf round-remote.elf
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
-          gh release create "$TAG" round-remote-full.bin \
+          gh release create "$TAG" round-remote-full.bin round-remote.elf \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
             --title "固件 ${GITHUB_REF_NAME} (${GITHUB_SHA::7})" \
-            --notes "整包镜像，从地址 0x0 烧录 round-remote-full.bin。Chrome 打开 https://espressif.github.io/esptool-js/ 连接板子即可刷，无需装环境。"
+            --notes "整包镜像，从地址 0x0 烧录 round-remote-full.bin。Chrome 打开 https://web.esphome.io 连接板子即可刷，无需装环境。round-remote.elf 仅用于解析崩溃日志，不用刷。"
 
       - uses: actions/upload-artifact@v4
         with:

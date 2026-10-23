@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "esp_check.h"
 #include "esp_log.h"
@@ -41,11 +42,66 @@ static lv_obj_t *s_media_controls;
 static lv_obj_t *s_prev_button;
 static lv_obj_t *s_next_button;
 static lv_obj_t *s_bottom_note;
-static lv_obj_t *s_ticks[TICK_COUNT];
+static lv_obj_t *s_tick_layer;
+static uint32_t s_tick_colors[TICK_COUNT];
+static uint32_t s_ui_signature = UINT32_MAX;
 
+/* Only touch LVGL when the text really changes: every set_text invalidates and forces a redraw. */
 static void set_label(lv_obj_t *label, const char *text)
 {
-    if (label != NULL) lv_label_set_text(label, text);
+    if (label == NULL || text == NULL) return;
+    const char *current = lv_label_get_text(label);
+    if (current != NULL && strcmp(current, text) == 0) return;
+    lv_label_set_text(label, text);
+}
+
+static void set_bg_color(lv_obj_t *obj, uint32_t color)
+{
+    if (lv_color_to_u32(lv_obj_get_style_bg_color(obj, LV_PART_MAIN)) == lv_color_to_u32(lv_color_hex(color))) return;
+    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+}
+
+static void set_border_color(lv_obj_t *obj, uint32_t color)
+{
+    if (lv_color_to_u32(lv_obj_get_style_border_color(obj, LV_PART_MAIN)) == lv_color_to_u32(lv_color_hex(color))) return;
+    lv_obj_set_style_border_color(obj, lv_color_hex(color), 0);
+}
+
+static void set_tick_color(int i, uint32_t color)
+{
+    if (s_tick_colors[i] == color) return;
+    s_tick_colors[i] = color;
+    if (s_tick_layer != NULL) lv_obj_invalidate(s_tick_layer);
+}
+
+/* Ticks are drawn as plain lines in one object. 60 rotated (transformed) objects forced
+ * LVGL to render an off-screen layer per tick on every refresh and starved CPU0 (task_wdt). */
+static void tick_draw_event(lv_event_t *event)
+{
+    lv_layer_t *layer = lv_event_get_layer(event);
+    lv_obj_t *obj = lv_event_get_target_obj(event);
+    lv_area_t coords;
+    lv_obj_get_coords(obj, &coords);
+    const float cx = coords.x1 + FACE_CENTER;
+    const float cy = coords.y1 + FACE_CENTER;
+    lv_draw_line_dsc_t dsc;
+    lv_draw_line_dsc_init(&dsc);
+    dsc.round_start = 1;
+    dsc.round_end = 1;
+    for (int t = 0; t < TICK_COUNT; ++t) {
+        const float ang = ((float)t * 6.0f - 90.0f) * 0.01745329252f;
+        const float len = (t % 5 == 0) ? 14.0f : 7.0f;
+        const float r_out = 198.0f + len / 2.0f;
+        const float r_in = 198.0f - len / 2.0f;
+        const float c = cosf(ang), sn = sinf(ang);
+        dsc.color = lv_color_hex(s_tick_colors[t]);
+        dsc.width = (t % 5 == 0) ? 3 : 2;
+        dsc.p1.x = (lv_value_precise_t)lroundf(cx + c * r_in);
+        dsc.p1.y = (lv_value_precise_t)lroundf(cy + sn * r_in);
+        dsc.p2.x = (lv_value_precise_t)lroundf(cx + c * r_out);
+        dsc.p2.y = (lv_value_precise_t)lroundf(cy + sn * r_out);
+        lv_draw_line(layer, &dsc);
+    }
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, const lv_font_t *font,
@@ -142,22 +198,14 @@ static void add_dial(lv_obj_t *screen)
     lv_obj_clear_flag(inner, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     for (int i = 0; i < TICK_COUNT; ++i) {
-        const float angle = ((float)i * 6.0f - 90.0f) * 0.01745329252f;
-        const int length = (i % 5 == 0) ? 14 : 7;
-        const int radius = 198;
-        const int x = FACE_CENTER + (int)lroundf(cosf(angle) * radius);
-        const int y = FACE_CENTER + (int)lroundf(sinf(angle) * radius);
-        lv_obj_t *tick = lv_obj_create(screen);
-        s_ticks[i] = tick;
-        lv_obj_set_size(tick, (i % 5 == 0) ? 3 : 2, length);
-        lv_obj_set_pos(tick, x - 1, y - length / 2);
-        lv_obj_set_style_radius(tick, 1, 0);
-        lv_obj_set_style_bg_color(tick, lv_color_hex((i % 5 == 0) ? 0x704532 : COLOR_TICK), 0);
-        lv_obj_set_style_bg_opa(tick, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(tick, 0, 0);
-        lv_obj_set_style_transform_rotation(tick, (i * 60), 0);
-        lv_obj_clear_flag(tick, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        s_tick_colors[i] = (i % 5 == 0) ? 0x704532 : COLOR_TICK;
     }
+    s_tick_layer = lv_obj_create(screen);
+    lv_obj_remove_style_all(s_tick_layer);
+    lv_obj_set_size(s_tick_layer, FACE_SIZE, FACE_SIZE);
+    lv_obj_center(s_tick_layer);
+    lv_obj_clear_flag(s_tick_layer, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_tick_layer, tick_draw_event, LV_EVENT_DRAW_MAIN, NULL);
 }
 
 static void refresh_ui(lv_timer_t *timer)
@@ -172,20 +220,25 @@ static void refresh_ui(lv_timer_t *timer)
         lv_obj_add_flag(s_prev_button, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_next_button, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_mode_controls, LV_OBJ_FLAG_HIDDEN);
+        s_ui_signature = UINT32_MAX;
         return;
     }
 
     const app_mode_t mode = s_requested_mode;
     const bool connected = ble_hid_is_connected();
+    const bool listening = s_listening;
+    const bool ptt_configured = ble_hid_ptt_key_configured();
+    const uint32_t signature = ((uint32_t)mode << 4) | ((uint32_t)connected << 2) |
+                               ((uint32_t)listening << 1) | (uint32_t)ptt_configured;
+    if (signature == s_ui_signature) return;   /* nothing changed: no invalidation, no redraw */
+    s_ui_signature = signature;
     lv_obj_add_flag(s_media_controls, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_prev_button, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_next_button, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_mode_controls, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_center_button, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_bg_color(s_center_button, lv_color_hex(COLOR_BUTTON), 0);
-    lv_obj_set_style_border_color(s_center_button, lv_color_hex(0x8B4A35), 0);
     for (int i = 0; i < TICK_COUNT; ++i) {
-        lv_obj_set_style_bg_color(s_ticks[i], lv_color_hex((i % 5 == 0) ? 0x704532 : COLOR_TICK), 0);
+        set_tick_color(i, (i % 5 == 0) ? 0x704532 : COLOR_TICK);
     }
 
     if (mode == APP_MODE_PUSH_TO_TALK) {
@@ -196,14 +249,16 @@ static void refresh_ui(lv_timer_t *timer)
                   !connected ? "蓝牙未连接" :
                   !ble_hid_ptt_key_configured() ? "PTT 键位未配置" : "等待按住");
         set_label(s_bottom_note, "此模式不采集麦克风音频");
-        lv_obj_set_style_bg_color(s_center_button, lv_color_hex(s_listening ? COLOR_AMBER : 0x211713), 0);
-        lv_obj_set_style_border_color(s_center_button, lv_color_hex(s_listening ? 0xFF9B73 : 0xA64E35), 0);
+        set_bg_color(s_center_button, s_listening ? COLOR_AMBER : 0x211713);
+        set_border_color(s_center_button, s_listening ? 0xFF9B73 : 0xA64E35);
         if (s_listening) {
             for (int i = 0; i < TICK_COUNT; ++i) {
-                if (i % 2 == 0) lv_obj_set_style_bg_color(s_ticks[i], lv_color_hex(COLOR_AMBER), 0);
+                if (i % 2 == 0) set_tick_color(i, COLOR_AMBER);
             }
         }
     } else if (mode == APP_MODE_MEDIA_REMOTE) {
+        set_bg_color(s_center_button, COLOR_BUTTON);
+        set_border_color(s_center_button, 0x8B4A35);
         set_label(s_title, "媒体遥控");
         set_label(s_subtitle, "蓝牙媒体按键");
         set_label(s_center_label, "播放\n暂停");
@@ -213,6 +268,8 @@ static void refresh_ui(lv_timer_t *timer)
         lv_obj_clear_flag(s_prev_button, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_next_button, LV_OBJ_FLAG_HIDDEN);
     } else if (mode == APP_MODE_STANDBY_PET) {
+        set_bg_color(s_center_button, COLOR_BUTTON);
+        set_border_color(s_center_button, 0x8B4A35);
         set_label(s_title, "待机");
         set_label(s_subtitle, "圆屏遥控器");
         set_label(s_center_label, "^_^\n待机");
@@ -220,6 +277,8 @@ static void refresh_ui(lv_timer_t *timer)
         set_label(s_bottom_note, "按下方按键返回主菜单");
     } else {
         set_label(s_title, "圆屏遥控器");
+        set_bg_color(s_center_button, COLOR_BUTTON);
+        set_border_color(s_center_button, 0x8B4A35);
         set_label(s_subtitle, connected ? "蓝牙已连接" : "蓝牙未连接");
         set_label(s_center_label, "媒体\n遥控");
         set_label(s_state, "选择一个模式");
