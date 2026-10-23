@@ -17,20 +17,23 @@
 #include "lvgl.h"
 
 #include "badge.h"
+#include "badge_format.h"
 #include "board_port.h"
 
 static const char *TAG = "badge";
 
-#define FACE        466
+#define FACE        BADGE_FACE_PIXELS
 #define FRAME_BYTES (FACE * FACE * 2)
-#define MAX_FRAMES  600
-#define MAX_JPEG    (256 * 1024)
-#define HDR_SIZE    16
+#define UPLOAD_CHUNK 16384u
+#define ERASE_CHUNK (64u * 1024u)
+#define RECEIVE_IDLE_TIMEOUT_US (30LL * 1000 * 1000)
+#define RECEIVE_TOTAL_TIMEOUT_US (5LL * 60 * 1000 * 1000)
 
 extern const char badge_upload_html[] asm("_binary_upload_html_start");
 
 static const esp_partition_t *s_part;
 static SemaphoreHandle_t s_idx_lock;
+static SemaphoreHandle_t s_upload_lock;
 static uint32_t *s_offsets;            /* frame offsets (points at the u32 length) */
 static uint32_t s_count;
 static uint16_t s_fps = 10;
@@ -39,56 +42,104 @@ static volatile bool s_active;
 static volatile bool s_receiving;
 static volatile int s_progress;
 static volatile uint32_t s_gen;
+static volatile uint32_t s_clip_gen;
 static uint8_t *s_jpeg;
 static uint8_t *s_pix[2];
+static uint8_t *s_validate_pix;       /* separate from LVGL-owned frame buffers */
 static lv_image_dsc_t s_dsc[2];
 static bool s_net_ready;
 static bool s_wifi_on;
 static httpd_handle_t s_httpd;
 
-static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
-static uint32_t rd32(const uint8_t *p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
-
-/* Called with s_idx_lock held. */
-static void scan_clip(void)
+/* Called with s_idx_lock held. v1 is read-only compatibility; new uploads use v2. */
+static bool scan_clip(const uint8_t *header_override, size_t wire_size, bool validate_jpegs)
 {
     s_valid = false;
     s_count = 0;
-    if (!s_part || !s_offsets) return;
-    uint8_t h[HDR_SIZE];
-    if (esp_partition_read(s_part, 0, h, sizeof h) != ESP_OK) return;
-    if (memcmp(h, "ORBV", 4) != 0 || rd16(h + 4) != 1) { ESP_LOGI(TAG, "no clip stored"); return; }
-    uint16_t fps = rd16(h + 6), w = rd16(h + 8), hh = rd16(h + 10);
-    uint32_t n = rd32(h + 12);
-    if (fps < 1 || fps > 30 || w != FACE || hh != FACE || n < 1 || n > MAX_FRAMES) {
-        ESP_LOGW(TAG, "bad clip header fps=%u %ux%u n=%lu", fps, w, hh, (unsigned long)n);
-        return;
+    if (!s_part || !s_offsets) return false;
+
+    uint8_t header[BADGE_V2_HEADER_BYTES] = {0};
+    if (header_override) {
+        memcpy(header, header_override, sizeof header);
+    } else if (esp_partition_read(s_part, 0, header, sizeof header) != ESP_OK) {
+        return false;
     }
-    uint32_t off = HDR_SIZE;
-    for (uint32_t i = 0; i < n; i++) {
-        uint8_t l[4];
-        if (off + 4 > s_part->size || esp_partition_read(s_part, off, l, 4) != ESP_OK) return;
-        uint32_t len = rd32(l);
-        if (len < 64 || len > MAX_JPEG || off + 4 + len > s_part->size) {
-            ESP_LOGW(TAG, "bad frame %lu len %lu", (unsigned long)i, (unsigned long)len);
-            return;
+
+    badge_clip_info_t info;
+    if (!badge_parse_header(header, sizeof header, s_part->size, &info)) {
+        ESP_LOGI(TAG, "no valid clip header");
+        return false;
+    }
+    if (info.version == BADGE_V2_VERSION &&
+        (wire_size != info.wire_header_bytes + info.data_bytes ||
+         info.flash_data_offset + info.data_bytes > s_part->size)) {
+        ESP_LOGW(TAG, "clip size mismatch");
+        return false;
+    }
+
+    size_t off = info.flash_data_offset;
+    const size_t end = info.version == BADGE_V2_VERSION
+        ? info.flash_data_offset + info.data_bytes : s_part->size;
+    for (uint32_t i = 0; i < info.frame_count; ++i) {
+        uint8_t length_bytes[4];
+        if (off > end || end - off < 4u ||
+            esp_partition_read(s_part, off, length_bytes, sizeof length_bytes) != ESP_OK) {
+            ESP_LOGW(TAG, "truncated frame length at %lu", (unsigned long)i);
+            return false;
         }
-        s_offsets[i] = off;
-        off += 4 + ((len + 3) & ~3u);
+        const uint32_t jpeg_size = badge_rd32(length_bytes);
+        size_t span = 0;
+        if (!badge_frame_span(jpeg_size, end - off, &span)) {
+            ESP_LOGW(TAG, "invalid frame span at %lu", (unsigned long)i);
+            return false;
+        }
+        s_offsets[i] = (uint32_t)off;
+        off += span;
     }
-    s_count = n;
-    s_fps = fps;
-    s_valid = true;
-    ESP_LOGI(TAG, "clip: %lu frames @ %u fps, %lu bytes", (unsigned long)n, fps, (unsigned long)off);
+    if (info.version == BADGE_V2_VERSION && off != end) {
+        ESP_LOGW(TAG, "unexpected trailing bytes in clip");
+        return false;
+    }
+    if (validate_jpegs) {
+        for (uint32_t i = 0; i < info.frame_count; ++i) {
+            uint8_t length_bytes[4];
+            if (esp_partition_read(s_part, s_offsets[i], length_bytes, sizeof length_bytes) != ESP_OK)
+                return false;
+            const uint32_t jpeg_size = badge_rd32(length_bytes);
+            if (esp_partition_read(s_part, s_offsets[i] + 4u, s_jpeg, jpeg_size) != ESP_OK)
+                return false;
+            if (!badge_jpeg_has_expected_dimensions(s_jpeg, jpeg_size)) {
+                ESP_LOGW(TAG, "unsupported JPEG dimensions at frame %lu", (unsigned long)i);
+                return false;
+            }
+            esp_jpeg_image_cfg_t cfg = {
+                .indata = s_jpeg, .indata_size = jpeg_size,
+                .outbuf = s_validate_pix, .outbuf_size = FRAME_BYTES,
+                .out_format = JPEG_IMAGE_FORMAT_RGB565, .out_scale = JPEG_IMAGE_SCALE_0,
+            };
+            esp_jpeg_image_output_t out;
+            if (esp_jpeg_decode(&cfg, &out) != ESP_OK || out.width != FACE || out.height != FACE) {
+                ESP_LOGW(TAG, "JPEG decode validation failed at frame %lu", (unsigned long)i);
+                return false;
+            }
+            if ((i & 3u) == 3u) vTaskDelay(1);
+        }
+    }
+
+    s_count = info.frame_count;
+    s_fps = info.fps;
+    return true;
 }
 
 static void player_task(void *arg)
 {
     const uint32_t gen = (uint32_t)(uintptr_t)arg;
     uint32_t i = 0;
+    uint32_t clip_gen = s_clip_gen;
     int back = 0;
     while (s_active && s_gen == gen) {
         if (s_receiving || !s_valid) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+        if (clip_gen != s_clip_gen) { clip_gen = s_clip_gen; i = 0; back = 0; }
         const int64_t t0 = esp_timer_get_time();
         bool ok = false;
         xSemaphoreTake(s_idx_lock, portMAX_DELAY);
@@ -96,8 +147,9 @@ static void player_task(void *arg)
             if (i >= s_count) i = 0;
             uint8_t l[4];
             if (esp_partition_read(s_part, s_offsets[i], l, 4) == ESP_OK) {
-                uint32_t len = rd32(l);
-                if (len <= MAX_JPEG && esp_partition_read(s_part, s_offsets[i] + 4, s_jpeg, len) == ESP_OK) {
+                uint32_t len = badge_rd32(l);
+                if (len <= BADGE_MAX_JPEG_BYTES && esp_partition_read(s_part, s_offsets[i] + 4, s_jpeg, len) == ESP_OK &&
+                    badge_jpeg_has_expected_dimensions(s_jpeg, len)) {
                     esp_jpeg_image_cfg_t cfg = {
                         .indata = s_jpeg, .indata_size = len,
                         .outbuf = s_pix[back], .outbuf_size = FRAME_BYTES,
@@ -139,58 +191,142 @@ static esp_err_t page_get(httpd_req_t *req)
 static esp_err_t info_get(httpd_req_t *req)
 {
     char buf[96];
+    const size_t max_wire = s_part && s_part->size > BADGE_V2_DATA_OFFSET
+        ? s_part->size - BADGE_V2_DATA_OFFSET + BADGE_V2_HEADER_BYTES : 0;
     snprintf(buf, sizeof buf, "{\"max\":%lu,\"frames\":%lu,\"fps\":%u}",
-             (unsigned long)(s_part ? s_part->size : 0), (unsigned long)(s_valid ? s_count : 0), s_fps);
+             (unsigned long)max_wire, (unsigned long)(s_valid ? s_count : 0), s_fps);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t upload_post(httpd_req_t *req)
 {
-    const size_t total = req->content_len;
-    if (!s_part || total < HDR_SIZE + 68 || total > s_part->size) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "size");
+    if (!s_part || !s_idx_lock || !s_upload_lock) {
+        httpd_resp_send_500(req);
         return ESP_FAIL;
     }
-    uint8_t *buf = heap_caps_malloc(16384, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!buf) { httpd_resp_send_500(req); return ESP_FAIL; }
+    const size_t total = req->content_len;
+    const size_t max_wire = s_part->size > BADGE_V2_DATA_OFFSET
+        ? s_part->size - BADGE_V2_DATA_OFFSET + BADGE_V2_HEADER_BYTES : 0;
+    if (total < BADGE_V2_HEADER_BYTES + 68u || total > max_wire) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid upload size");
+        return ESP_FAIL;
+    }
+    if (xSemaphoreTake(s_upload_lock, 0) != pdTRUE) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "upload already in progress");
+        return ESP_FAIL;
+    }
 
-    xSemaphoreTake(s_idx_lock, portMAX_DELAY);
-    s_valid = false;
-    xSemaphoreGive(s_idx_lock);
+    uint8_t *buf = heap_caps_malloc(UPLOAD_CHUNK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) {
+        xSemaphoreGive(s_upload_lock);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    uint8_t header[BADGE_V2_HEADER_BYTES] = {0};
+    size_t header_got = 0;
+    size_t received = 0;
+    size_t erased = 0;
+    esp_err_t err = ESP_OK;
+    bool committed = false;
+    const int64_t started_at = esp_timer_get_time();
+    int64_t last_rx = started_at;
+
+    /* s_receiving gates the player. Taking this lock drains any in-flight frame read/decode. */
     s_receiving = true;
     s_progress = 0;
-    ESP_LOGI(TAG, "receiving clip: %u bytes", (unsigned)total);
-
-    size_t done = 0, erased = 0;
-    esp_err_t err = ESP_OK;
-    while (done < total) {
-        int r = httpd_req_recv(req, (char *)buf, total - done < 16384 ? total - done : 16384);
-        if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
-        if (r <= 0) { err = ESP_FAIL; break; }
-        while (erased < done + r) {
-            size_t chunk = 64 * 1024;
-            if (erased + chunk > s_part->size) chunk = s_part->size - erased;
-            if ((err = esp_partition_erase_range(s_part, erased, chunk)) != ESP_OK) break;
-            erased += chunk;
-            vTaskDelay(1);
-        }
-        if (err != ESP_OK) break;
-        if ((err = esp_partition_write(s_part, done, buf, r)) != ESP_OK) break;
-        done += r;
-        vTaskDelay(1);   /* flash ops stall both cores; let IDLE/LVGL breathe between chunks */
-        s_progress = (int)(done * 100 / total);
-    }
-    free(buf);
-
     xSemaphoreTake(s_idx_lock, portMAX_DELAY);
-    scan_clip();
+    s_valid = false;
+    s_count = 0;
     xSemaphoreGive(s_idx_lock);
-    s_receiving = false;
 
-    if (err != ESP_OK || !s_valid) {
-        ESP_LOGW(TAG, "upload failed (%s, valid=%d)", esp_err_to_name(err), s_valid);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad clip");
+    /* Erase the sector containing the commit header first. Until the final header write,
+       boot and the player both treat this slot as empty, even after reset or disconnect. */
+    size_t first_erase = s_part->size < ERASE_CHUNK ? s_part->size : ERASE_CHUNK;
+    if (first_erase < BADGE_V2_DATA_OFFSET) {
+        err = ESP_ERR_INVALID_SIZE;
+        ESP_LOGE(TAG, "badge partition too small for transactional upload");
+    } else if ((err = esp_partition_erase_range(s_part, 0, first_erase)) != ESP_OK) {
+        ESP_LOGE(TAG, "initial erase failed: %s", esp_err_to_name(err));
+    } else {
+        erased = first_erase;
+        vTaskDelay(1);
+    }
+
+    ESP_LOGI(TAG, "receiving v2 clip: %u bytes", (unsigned)total);
+    while (err == ESP_OK && received < total) {
+        if (esp_timer_get_time() - started_at > RECEIVE_TOTAL_TIMEOUT_US) {
+            err = ESP_ERR_TIMEOUT;
+            break;
+        }
+        const size_t want = total - received < UPLOAD_CHUNK ? total - received : UPLOAD_CHUNK;
+        int r = httpd_req_recv(req, (char *)buf, want);
+        if (r == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (esp_timer_get_time() - last_rx > RECEIVE_IDLE_TIMEOUT_US) err = ESP_ERR_TIMEOUT;
+            continue;
+        }
+        if (r <= 0) { err = ESP_FAIL; break; }
+        last_rx = esp_timer_get_time();
+
+        size_t pos = 0;
+        const size_t chunk_end = received + (size_t)r;
+        if (received < sizeof header) {
+            const size_t take = chunk_end < sizeof header ? chunk_end - received : sizeof header - received;
+            memcpy(header + received, buf, take);
+            header_got += take;
+            pos += take;
+        }
+        if (pos < (size_t)r) {
+            const size_t wire_data_off = received + pos - BADGE_V2_HEADER_BYTES;
+            const size_t flash_off = BADGE_V2_DATA_OFFSET + wire_data_off;
+            const size_t data_len = (size_t)r - pos;
+            const size_t target_end = flash_off + data_len;
+            while (erased < target_end) {
+                size_t chunk = s_part->size - erased < ERASE_CHUNK ? s_part->size - erased : ERASE_CHUNK;
+                if (!chunk || (err = esp_partition_erase_range(s_part, erased, chunk)) != ESP_OK) break;
+                erased += chunk;
+                vTaskDelay(1);
+            }
+            if (err != ESP_OK) break;
+            if ((err = esp_partition_write(s_part, flash_off, buf + pos, data_len)) != ESP_OK) break;
+        }
+        received = chunk_end;
+        s_progress = (int)(received * 100u / total);
+        vTaskDelay(1); /* flash operations and Wi-Fi must leave time for idle/LVGL tasks */
+    }
+
+    if (err == ESP_OK && (received != total || header_got != sizeof header)) err = ESP_ERR_INVALID_SIZE;
+    badge_clip_info_t info;
+    if (err == ESP_OK && (!badge_parse_header(header, sizeof header, s_part->size, &info) ||
+                          info.version != BADGE_V2_VERSION ||
+                          info.wire_header_bytes + info.data_bytes != total)) {
+        err = ESP_ERR_INVALID_ARG;
+    }
+    if (err == ESP_OK) {
+        xSemaphoreTake(s_idx_lock, portMAX_DELAY);
+        const bool valid = scan_clip(header, total, true);
+        if (!valid) {
+            err = ESP_ERR_INVALID_RESPONSE;
+        } else if ((err = esp_partition_write(s_part, 0, header, sizeof header)) == ESP_OK) {
+            /* Publish the clip only after every frame decoded and the commit header is stored. */
+            s_valid = true;
+            s_clip_gen++;
+            s_progress = 100;
+            committed = true;
+        }
+        xSemaphoreGive(s_idx_lock);
+    }
+
+    free(buf);
+    s_receiving = false;
+    xSemaphoreGive(s_upload_lock);
+    if (!committed) {
+        s_valid = false;
+        s_count = 0;
+        ESP_LOGW(TAG, "upload rejected (%s); no clip committed", esp_err_to_name(err));
+        httpd_resp_send_err(req, err == ESP_ERR_TIMEOUT ? HTTPD_408_REQ_TIMEOUT : HTTPD_400_BAD_REQUEST,
+                            "video invalid or upload interrupted; no clip committed");
         return ESP_FAIL;
     }
     httpd_resp_sendstr(req, "ok");
@@ -201,7 +337,7 @@ static void start_http(void)
 {
     if (s_httpd) return;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.stack_size = 8192;
+    cfg.stack_size = 12288;
     cfg.recv_wait_timeout = 15;
     cfg.lru_purge_enable = true;
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) { ESP_LOGE(TAG, "httpd start failed"); s_httpd = NULL; return; }
@@ -250,10 +386,13 @@ static bool init_once(void)
 {
     if (s_idx_lock) return s_jpeg != NULL;
     s_idx_lock = xSemaphoreCreateMutex();
+    s_upload_lock = xSemaphoreCreateMutex();
+    if (!s_idx_lock || !s_upload_lock) return false;
     s_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, (esp_partition_subtype_t)0x40, "badge");
     if (!s_part) ESP_LOGE(TAG, "no 'badge' partition");
-    s_offsets = heap_caps_malloc(MAX_FRAMES * sizeof(uint32_t), MALLOC_CAP_SPIRAM);
-    s_jpeg = heap_caps_malloc(MAX_JPEG, MALLOC_CAP_SPIRAM);
+    s_offsets = heap_caps_malloc(BADGE_MAX_FRAMES * sizeof(uint32_t), MALLOC_CAP_SPIRAM);
+    s_jpeg = heap_caps_malloc(BADGE_MAX_JPEG_BYTES, MALLOC_CAP_SPIRAM);
+    s_validate_pix = heap_caps_aligned_alloc(64, FRAME_BYTES, MALLOC_CAP_SPIRAM);
     for (int i = 0; i < 2; i++) {
         s_pix[i] = heap_caps_aligned_alloc(64, FRAME_BYTES, MALLOC_CAP_SPIRAM);
         if (!s_pix[i]) continue;
@@ -265,13 +404,13 @@ static bool init_once(void)
             .data = s_pix[i],
         };
     }
-    if (!s_offsets || !s_jpeg || !s_pix[0] || !s_pix[1]) {
+    if (!s_offsets || !s_jpeg || !s_validate_pix || !s_pix[0] || !s_pix[1]) {
         ESP_LOGE(TAG, "out of PSRAM for player");
         free(s_jpeg); s_jpeg = NULL;
         return false;
     }
     xSemaphoreTake(s_idx_lock, portMAX_DELAY);
-    scan_clip();
+    s_valid = scan_clip(NULL, 0, false);
     xSemaphoreGive(s_idx_lock);
     return true;
 }

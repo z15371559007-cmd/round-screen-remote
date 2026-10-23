@@ -26,6 +26,14 @@ Kconfig（`idf.py menuconfig` → Round screen remote）：
 - `Host link backend`：Stub（默认）/ Wi-Fi WebSocket（未实现，选中会构建失败）；`HOST/PORT/TOKEN` 预留，令牌勿提交。
 - `Pet voice backend`：Stub（默认）/ ESP-SR（未实现，选中会构建失败）。
 
+## 电子吧唧视频上传与循环播放
+
+- `firmware/partitions.csv` 中的 `badge` 分区为 8 MiB 闪存空间（不是 8 GB，也不是运行内存）；`factory` app 分区为 4 MiB。不要把只含默认单 app 分区表的旧镜像与此模式混用。
+- 设备开启吧唧模式后会提供本地热点和上传页。浏览器在本机把视频裁切、缩放并转成 466×466 JPEG 帧，再上传；固件按帧循环播放，原视频不存到板上。
+- 上传约束：源文件最多 100 MiB；选取片段 1–10 秒、最多 15 fps/150 帧；单帧 JPEG 最多 256 KiB，整体不得超过可用的 8 MiB 存储分区。
+- 新格式 v2 在独立擦除区写入帧数据，校验每帧尺寸与 JPEG 解码后才最后写入有效头；断线、超时或格式错误会拒绝本次片段，不会把部分内容当成可播放视频。为防止刷新绘制任务饿死，解码/渲染在播放器任务中逐帧进行，并在帧之间让出 CPU 时间。
+- `tests/test_badge_format.c` 覆盖头部校验、CRC、帧长度边界、图片尺寸和 v1 只读兼容；CI 同时检查上传页 JavaScript 语法。
+
 ## 构建
 
 ```sh
