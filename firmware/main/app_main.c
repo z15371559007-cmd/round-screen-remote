@@ -3,6 +3,7 @@
 #include "board_port.h"
 #include "mode_router.h"
 #include "ble_hid.h"
+#include "host_link.h"
 #include "pmu_axp2101.h"
 #include "hw_buttons.h"
 #include "button_actions.h"
@@ -18,6 +19,10 @@ void app_main(void)
     /* One shared BLE HID device, so the upper key can play/pause from any screen. */
     esp_err_t err = ble_hid_start();
     if (err != ESP_OK) ESP_LOGW(TAG, "BLE HID start failed: %s", esp_err_to_name(err));
+
+    /* Now-playing metadata source (stub until the Wi-Fi bridge lands). */
+    err = host_link_start(NULL);
+    if (err != ESP_OK) ESP_LOGW(TAG, "Host link start failed: %s", esp_err_to_name(err));
 
     err = pmu_init();
     if (err != ESP_OK) ESP_LOGW(TAG, "AXP2101 unavailable; upper key and power-off disabled (%s)", esp_err_to_name(err));

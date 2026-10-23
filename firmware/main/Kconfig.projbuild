@@ -18,12 +18,17 @@ config ROUND_REMOTE_SKU_31264
 endchoice
 
 config ROUND_REMOTE_PTT_HID_USAGE
-    int "PTT keyboard HID usage (0 leaves PTT unconfigured)"
-    range 0 101
-    default 0
+    hex "PTT keyboard HID usage (default 0x68 = F13; 0 disables PTT)"
+    range 0x00 0xDF
+    default 0x68
     help
-        USB HID Keyboard/Keypad usage ID (0x04-0x65) sent while the PTT touch control is held.
-        Zero deliberately sends no keyboard report. Set only after choosing the host shortcut.
+        USB HID Keyboard/Keypad usage ID held down for the whole time PTT is pressed
+        (one key-down report on press, empty report on release; not a tap).
+        Default 0x68 = F13 (bind the computer's voice/dictation app to F13).
+        Valid keys: 0x04-0xDF, e.g. 0x68-0x73 = F13-F24, 0x3A-0x45 = F1-F12.
+        The keyboard report descriptor covers usages 0x00-0xFF, so F13-F24 are transmitted.
+        0 deliberately sends no keyboard report (PTT shows "unconfigured").
+        Modifier keys (0xE0-0xE7) go in ROUND_REMOTE_PTT_HID_MODIFIERS instead.
 
 config ROUND_REMOTE_PTT_HID_MODIFIERS
     hex "PTT keyboard modifier bitmask"
@@ -32,6 +37,13 @@ config ROUND_REMOTE_PTT_HID_MODIFIERS
     help
         Optional keyboard modifier bits (bit 0 Ctrl, 1 Shift, 2 Alt, 3 GUI, 4-7 right-side equivalents).
         This remains zero unless explicitly configured.
+
+config ROUND_REMOTE_PTT_MAX_HOLD_MS
+    int "PTT stuck-key watchdog: force key-up after this many ms (0 = off)"
+    range 0 600000
+    default 120000
+    help
+        Safety net: if a release is ever missed, the PTT key is released automatically.
 
 config ROUND_REMOTE_BOOT_LONG_PRESS_MS
     int "Lower key (BOOT) long-press power-off threshold (ms)"
@@ -51,5 +63,50 @@ config ROUND_REMOTE_PWR_EDGE_INVERT
     default n
     help
         Only needed if PTT starts on release instead of press on real hardware.
+
+menu "Host link (Wi-Fi bridge / now playing)"
+
+choice ROUND_REMOTE_HOST_LINK_BACKEND
+    prompt "Host link backend"
+    default ROUND_REMOTE_HOST_LINK_BACKEND_STUB
+    help
+        Source of now-playing metadata (title/artist/position/volume) from the computer.
+        Playback control does not need this; it uses BLE HID media keys.
+
+config ROUND_REMOTE_HOST_LINK_BACKEND_STUB
+    bool "Stub (placeholder data, no Wi-Fi)"
+config ROUND_REMOTE_HOST_LINK_BACKEND_WIFI_WS
+    bool "Wi-Fi WebSocket to host/omarchy-bridge (NOT IMPLEMENTED yet; build fails)"
+endchoice
+
+config ROUND_REMOTE_HOST_LINK_STUB_DEMO
+    bool "Stub publishes an animated demo track (for UI development)"
+    depends on ROUND_REMOTE_HOST_LINK_BACKEND_STUB
+    default n
+    help
+        n: placeholder "未连接电脑". y: fake playing track whose position advances every second.
+
+config ROUND_REMOTE_HOST_LINK_HOST
+    string "Bridge host (IP or mDNS name)"
+    default ""
+config ROUND_REMOTE_HOST_LINK_PORT
+    int "Bridge port"
+    range 1 65535
+    default 8765
+config ROUND_REMOTE_HOST_LINK_TOKEN
+    string "Bridge token (ROUND_REMOTE_TOKEN; set locally, never commit)"
+    default ""
+
+endmenu
+
+choice ROUND_REMOTE_PET_VOICE_BACKEND
+    prompt "Pet voice backend"
+    default ROUND_REMOTE_PET_VOICE_BACKEND_STUB
+
+config ROUND_REMOTE_PET_VOICE_BACKEND_STUB
+    bool "Stub (no microphone / recognition)"
+config ROUND_REMOTE_PET_VOICE_BACKEND_ESP_SR
+    bool "ESP-SR WakeNet/MultiNet (NOT IMPLEMENTED yet; build fails)"
+endchoice
 
 endmenu

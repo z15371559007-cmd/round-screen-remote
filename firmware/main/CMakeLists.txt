@@ -1,3 +1,11 @@
+# Backend selection (see Kconfig "Host link" / "Pet voice backend").
+if(CONFIG_ROUND_REMOTE_HOST_LINK_BACKEND_WIFI_WS)
+    message(FATAL_ERROR "ROUND_REMOTE_HOST_LINK_BACKEND_WIFI_WS is not implemented yet; select the stub")
+endif()
+if(CONFIG_ROUND_REMOTE_PET_VOICE_BACKEND_ESP_SR)
+    message(FATAL_ERROR "ROUND_REMOTE_PET_VOICE_BACKEND_ESP_SR is not implemented yet; select the stub")
+endif()
+
 idf_component_register(
     SRCS
         "app_main.c"
@@ -11,6 +19,8 @@ idf_component_register(
         "platform/ble_hid.c"
         "platform/esp_hid_gap.c"
         "platform/pet_voice_backend_stub.c"
+        "platform/host_link_stub.c"
+        "platform/host_link_protocol.c"
         "platform/pmu_axp2101.c"
         "platform/hw_buttons.c"
         "modules/button_actions.c"

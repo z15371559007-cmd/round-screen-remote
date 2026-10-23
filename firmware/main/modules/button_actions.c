@@ -7,7 +7,7 @@
 #include "board_port.h"
 #include "mode_router.h"
 #include "push_to_talk.h"
-#include "ble_hid.h"
+#include "media_remote.h"
 #include "pmu_axp2101.h"
 
 static const char *TAG = "button_actions";
@@ -16,7 +16,7 @@ static bool s_ptt_from_key;   /* the current PWR hold started a PTT key-down */
 static void release_ptt_if_held(void)
 {
     if (s_ptt_from_key) {
-        (void)push_to_talk_on_released();
+        (void)push_to_talk_release(PTT_SOURCE_KEY);
         board_port_set_listening(false);
         s_ptt_from_key = false;
     }
@@ -27,6 +27,7 @@ void button_actions_handle(hw_button_event_t event)
     if (event == HW_BUTTON_BOOT_LONG) {
         board_port_ui_lock();
         release_ptt_if_held();
+        push_to_talk_release_all();   /* also drops a touch-held PTT before power-off */
         board_port_show_power_off();
         board_port_ui_unlock();
         vTaskDelay(pdMS_TO_TICKS(900));
@@ -46,7 +47,7 @@ void button_actions_handle(hw_button_event_t event)
         break;
     case HW_BUTTON_PWR_DOWN:
         if (mode == APP_MODE_PUSH_TO_TALK) {
-            err = push_to_talk_on_pressed();
+            err = push_to_talk_press(PTT_SOURCE_KEY);
             s_ptt_from_key = (err == ESP_OK);
             board_port_set_listening(s_ptt_from_key);
         }
@@ -55,7 +56,7 @@ void button_actions_handle(hw_button_event_t event)
         if (s_ptt_from_key) {
             release_ptt_if_held();
         } else if (mode != APP_MODE_PUSH_TO_TALK) {
-            err = ble_hid_send_media(BLE_HID_MEDIA_PLAY_PAUSE);
+            err = media_remote_play_pause();   /* single click = play/pause */
         }
         break;
     default:
