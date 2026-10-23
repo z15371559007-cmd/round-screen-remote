@@ -10,11 +10,13 @@
 - `firmware/`：ESP-IDF 固件骨架，拆为遥控、Push-to-Talk、待机互动宠物三种模式。
 - `host/omarchy-bridge/`：Omarchy/Linux 的本地 MPRIS/WebSocket 桥接服务骨架。
 
-## 三种模式
+## 当前交互模式
 
 1. 遥控：通过局域网桥接控制媒体，并接收播放状态。
 2. Push-to-Talk：圆屏按住/松开发送 BLE HID 按键事件，电脑用已配置的语音输入工具和电脑麦克风。
 3. 待机互动宠物：宠物独立运行；目标是在板上用离线口令识别驱动表情和动作，不控制媒体。
+4. 工具：The Badge 风格的 RAM 秒表与泡泡纸触摸小游戏，沿用现有圆屏表盘视觉。
+5. 电子吧唧：本地上传并循环播放 JPEG 帧视频；受分区容量和目标板型约束。
 
 ## 运行本地媒体桥接（Linux/Omarchy）
 
@@ -23,6 +25,10 @@
 ## 固件骨架
 
 见 [`firmware/README.md`](firmware/README.md)。选择 ESP-IDF 是为了后续接入 ESP32-S3 的 BLE、Wi-Fi 和 ESP-SR。当前驱动适配器仍是 stub；构建通过也不代表已能驱动实际屏幕或麦克风。
+
+## The Badge 风格小工具
+
+固件已加入秒表和泡泡纸两个独立模块，并已集成 BLE HID 8 键快捷键环（ESC、ENTER、TAB、SPACE、方向键）；保留媒体/PTT/视频功能及现有 UI 语言。蓝牙空鼠/触控板、录音/导出、闹钟/时钟和其他小游戏仍未集成。参考项目与许可证说明见 [`docs/third-party-notices.md`](docs/third-party-notices.md)。
 
 ## 当前边界
 

@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_check.h"
@@ -14,6 +15,8 @@
 #include "push_to_talk.h"
 #include "ble_hid.h"
 #include "badge.h"
+#include "badge_tools.h"
+#include "esp_timer.h"
 
 /*
  * Round 466x466 UI (Wabi style, see docs/hark/reference/target-*.webp).
@@ -76,7 +79,7 @@ static lv_obj_t *s_badge_img;
 static lv_obj_t *s_badge_info;
 static bool s_badge_info_on;
 static uint32_t s_badge_sig = UINT32_MAX;
-static uint32_t s_ui_signature = UINT32_MAX;
+static uint64_t s_ui_signature = UINT64_MAX;
 static bool s_deco_ptt;
 static bool s_deco_lit;
 
@@ -314,6 +317,15 @@ static void main_button_event(lv_event_t *event)
         err = media_remote_send(MEDIA_COMMAND_PLAY_PAUSE);
     } else if (s_requested_mode == APP_MODE_HOME && code == LV_EVENT_CLICKED) {
         err = mode_router_switch_to(APP_MODE_MEDIA_REMOTE);
+    } else if (s_requested_mode == APP_MODE_BADGE_TOOLS && code == LV_EVENT_CLICKED) {
+        badge_tools_snapshot_t tools = {0};
+        badge_tools_snapshot((uint64_t)esp_timer_get_time(), &tools);
+        if (tools.page == BADGE_TOOL_KEY_RING) {
+            const badge_tool_key_t *key = badge_tools_key_for_index(tools.key_index);
+            err = key ? ble_hid_send_key(key->modifiers, key->usage) : ESP_ERR_INVALID_ARG;
+        } else {
+            badge_tools_primary((uint64_t)esp_timer_get_time());
+        }
     }
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE && err != ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGW(TAG, "Control unavailable: %s", esp_err_to_name(err));
@@ -323,7 +335,20 @@ static void main_button_event(lv_event_t *event)
 static void media_control_event(lv_event_t *event)
 {
     if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
-    media_command_t command = (media_command_t)(intptr_t)lv_event_get_user_data(event);
+    const media_command_t command = (media_command_t)(intptr_t)lv_event_get_user_data(event);
+    if (s_requested_mode == APP_MODE_BADGE_TOOLS) {
+        badge_tools_snapshot_t tools = {0};
+        badge_tools_snapshot((uint64_t)esp_timer_get_time(), &tools);
+        if (tools.page == BADGE_TOOL_KEY_RING) {
+            if (command == MEDIA_COMMAND_PREVIOUS) badge_tools_step_key(-1);
+            else if (command == MEDIA_COMMAND_NEXT) badge_tools_step_key(1);
+        } else if (command == MEDIA_COMMAND_PREVIOUS) {
+            badge_tools_reset((uint64_t)esp_timer_get_time());
+        } else if (command == MEDIA_COMMAND_NEXT) {
+            badge_tools_next_page();
+        }
+        return;
+    }
     esp_err_t err = media_remote_send(command);
     ESP_LOGI(TAG, "Media command %d -> %s", (int)command, esp_err_to_name(err));
 }
@@ -398,7 +423,7 @@ static void refresh_ui(lv_timer_t *timer)
         set_hidden(s_next_button, true);
         set_hidden(s_mode_controls, true);
         set_deco(false, false);
-        s_ui_signature = UINT32_MAX;
+        s_ui_signature = UINT64_MAX;
         return;
     }
 
@@ -409,9 +434,18 @@ static void refresh_ui(lv_timer_t *timer)
     const bool touch_down = s_touch_down;
     const bool failed = s_ptt_failed;
     const bool ptt_ok = ble_hid_ptt_key_configured();
-    const uint32_t signature = ((uint32_t)ble_state << 12) | ((uint32_t)mode << 8) | ((uint32_t)connected << 4) |
-                               ((uint32_t)listening << 3) | ((uint32_t)touch_down << 2) |
-                               ((uint32_t)failed << 1) | (uint32_t)ptt_ok;
+    badge_tools_snapshot_t tools = {0};
+    if (mode == APP_MODE_BADGE_TOOLS) badge_tools_snapshot((uint64_t)esp_timer_get_time(), &tools);
+    const uint64_t tools_payload = tools.page == BADGE_TOOL_KEY_RING
+                                      ? ((uint64_t)(tools.key_index & 0x7u) << 15)
+                                      : ((uint64_t)tools.running << 31) |
+                                        ((uint64_t)(tools.elapsed_ms / 1000u & 0xFFFFu) << 15) |
+                                        (uint64_t)(tools.bubbles_popped & 0x7FFFu);
+    const uint64_t signature = ((uint64_t)ble_state << 48) | ((uint64_t)mode << 40) |
+                               ((uint64_t)connected << 39) | ((uint64_t)listening << 38) |
+                               ((uint64_t)touch_down << 37) | ((uint64_t)failed << 36) |
+                               ((uint64_t)ptt_ok << 35) | ((uint64_t)tools.page << 32) |
+                               tools_payload;
     if (signature == s_ui_signature) return;   /* nothing changed: no redraw */
     s_ui_signature = signature;
 
@@ -420,11 +454,30 @@ static void refresh_ui(lv_timer_t *timer)
                        ble_state == BLE_HID_STATE_FAILED ? "蓝牙启动失败" : "蓝牙未连接";
     const bool is_ptt = (mode == APP_MODE_PUSH_TO_TALK);
     const bool is_media = (mode == APP_MODE_MEDIA_REMOTE);
+    const bool is_tools = (mode == APP_MODE_BADGE_TOOLS);
+    const bool tools_stopwatch = tools.page == BADGE_TOOL_STOPWATCH;
+    const bool tools_bubble = tools.page == BADGE_TOOL_BUBBLE;
+    const bool tools_key_ring = tools.page == BADGE_TOOL_KEY_RING;
 
     set_hidden(s_media_controls, !is_media);
-    set_hidden(s_prev_button, !is_media);
-    set_hidden(s_next_button, !is_media);
+    set_hidden(s_prev_button, !(is_media || is_tools));
+    set_hidden(s_next_button, !(is_media || is_tools));
     set_hidden(s_mode_controls, mode != APP_MODE_HOME);
+    if (is_tools) {
+        lv_obj_t *left = lv_obj_get_child(s_prev_button, 0);
+        lv_obj_t *right = lv_obj_get_child(s_next_button, 0);
+        set_label_font(left, UI_FONT);
+        set_label_font(right, UI_FONT);
+        set_label(left, tools_key_ring ? "上键" : "复位");
+        set_label(right, tools_key_ring ? "下键" : "换页");
+    } else {
+        lv_obj_t *left = lv_obj_get_child(s_prev_button, 0);
+        lv_obj_t *right = lv_obj_get_child(s_next_button, 0);
+        set_label_font(left, ICON_FONT);
+        set_label_font(right, ICON_FONT);
+        set_label(left, LV_SYMBOL_PREV);
+        set_label(right, LV_SYMBOL_NEXT);
+    }
     set_hidden(s_mic, !is_ptt);
     set_hidden(s_center_label, is_ptt);
     lv_obj_invalidate(s_mic);
@@ -457,6 +510,36 @@ static void refresh_ui(lv_timer_t *timer)
         set_label(s_center_label, LV_SYMBOL_PLAY "  " LV_SYMBOL_PAUSE);
         set_label(s_state, connected ? "" : "请先在电脑上配对");
         set_label(s_note, "");
+    } else if (is_tools) {
+        set_deco(false, false);
+        set_bg_color(s_center_button, COLOR_BUTTON);
+        set_border_color(s_center_button, COLOR_AMBER);
+        set_label(s_title, tools_stopwatch ? "随身秒表" : tools_bubble ? "泡泡纸" : "按键");
+        set_label(s_subtitle, tools_stopwatch ? "The Badge · 轻量工具" :
+                            tools_bubble ? "The Badge · 轻松一下" : "BLE HID");
+        set_label_font(s_center_label, UI_FONT);
+        if (tools_key_ring) {
+            const badge_tool_key_t *key = badge_tools_key_for_index(tools.key_index);
+            set_label(s_center_label, key ? key->label : "ESC");
+            set_label(s_state, connected ? "按下发送" : "请先配对");
+            set_label(s_note, "L/R · TAP");
+        } else if (tools_stopwatch) {
+            static char clock_text[24];
+            const uint64_t seconds = tools.elapsed_ms / 1000u;
+            snprintf(clock_text, sizeof clock_text, "%02llu:%02llu:%02llu",
+                     (unsigned long long)(seconds / 3600u),
+                     (unsigned long long)((seconds / 60u) % 60u),
+                     (unsigned long long)(seconds % 60u));
+            set_label(s_center_label, clock_text);
+            set_label(s_state, tools.running ? "轻触暂停" : "轻触开始");
+            set_label(s_note, "左侧复位 · 右侧换页");
+        } else {
+            static char bubble_text[32];
+            snprintf(bubble_text, sizeof bubble_text, "泡泡纸\n%04u", tools.bubbles_popped);
+            set_label(s_center_label, bubble_text);
+            set_label(s_state, "轻触戳泡泡");
+            set_label(s_note, "左侧清零 · 右侧换页");
+        }
     } else if (mode == APP_MODE_STANDBY_PET) {
         set_deco(false, false);
         set_bg_color(s_center_button, COLOR_BUTTON);
@@ -562,14 +645,15 @@ esp_err_t board_port_init(void)
                             (void *)(intptr_t)controls[i].command);
     }
 
-    s_mode_controls = make_row(screen, 300, 48, 8);
+    s_mode_controls = make_row(screen, 300, 48, 4);
     lv_obj_align(s_mode_controls, LV_ALIGN_TOP_MID, 0, 352);
     static const struct { const char *text; app_mode_t mode; } modes[] = {
         { "媒体", APP_MODE_MEDIA_REMOTE }, { "PTT", APP_MODE_PUSH_TO_TALK },
         { "待机", APP_MODE_STANDBY_PET }, { "吧唧", APP_MODE_BADGE },
+        { "工具", APP_MODE_BADGE_TOOLS },
     };
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); ++i) {
-        lv_obj_t *button = make_button(s_mode_controls, modes[i].text, UI_FONT, 68, 46, 16);
+        lv_obj_t *button = make_button(s_mode_controls, modes[i].text, UI_FONT, 52, 46, 16);
         lv_obj_add_event_cb(button, mode_button_event, LV_EVENT_CLICKED,
                             (void *)(intptr_t)modes[i].mode);
     }

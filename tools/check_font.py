@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Fail if any non-ASCII character in firmware string literals is missing from rsr_font_cjk_24.c.
-Missing glyphs render as boxes on the device; fix with tools/gen_font.sh."""
+Missing glyphs render as boxes; base and additive fallback glyphs are both checked."""
 import glob, os, re, sys
 root = os.path.join(os.path.dirname(__file__), '..', 'firmware', 'main')
-font = open(os.path.join(root, 'fonts', 'rsr_font_cjk_24.c'), encoding='utf-8').read()
+font = '\n'.join(open(os.path.join(root, 'fonts', name), encoding='utf-8').read()
+                  for name in ('rsr_font_cjk_24.c', 'rsr_font_cjk_24_extra.c')
+                  if os.path.exists(os.path.join(root, 'fonts', name)))
 lists = {n: [int(x, 16) for x in re.findall(r'0x[0-9a-fA-F]+', b)]
          for n, b in re.findall(r'static const uint16_t (\w+)\[\] = \{(.*?)\};', font, re.S)}
 have = set()

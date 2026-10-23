@@ -10,6 +10,8 @@
 #include "lvgl.h"
 #endif
 
+extern const lv_font_t rsr_font_cjk_24_extra;
+
 #ifndef RSR_FONT_CJK_24
 #define RSR_FONT_CJK_24 1
 #endif
@@ -5194,7 +5196,7 @@ lv_font_t rsr_font_cjk_24 = {
 #endif
     .dsc = &font_dsc,          /*The custom font data. Will be accessed by `get_glyph_bitmap/dsc` */
 #if LV_VERSION_CHECK(8, 2, 0) || LVGL_VERSION_MAJOR >= 9
-    .fallback = NULL,
+    .fallback = &rsr_font_cjk_24_extra,
 #endif
     .user_data = NULL,
 };
