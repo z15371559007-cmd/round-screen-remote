@@ -20,6 +20,7 @@ typedef enum {
     BADGE_STATE_NO_VIDEO = 0,
     BADGE_STATE_PLAYING,
     BADGE_STATE_RECEIVING,
+    BADGE_STATE_STARTING,
     BADGE_STATE_ERROR,
 } badge_state_t;
 

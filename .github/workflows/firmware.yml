@@ -27,6 +27,7 @@ jobs:
           /tmp/test_badge_format
           cc -std=c11 -Wall -Wextra -Werror -Ifirmware/main/modules tests/test_badge_tools.c firmware/main/modules/badge_tools.c -o /tmp/test_badge_tools
           /tmp/test_badge_tools
+          python3 tools/check_badge_entry.py
           python3 - <<'PY'
           from pathlib import Path
           import re
