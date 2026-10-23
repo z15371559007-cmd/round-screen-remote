@@ -16,7 +16,7 @@ cs|=set("…、，。：？！（）·—“”")
 print(''.join(sorted(cs)),end='')
 PY
 )
-npx lv_font_conv --font "$FONT" --size 24 --bpp 4 --format lvgl --no-compress \
+npx lv_font_conv --font "$FONT" --size 24 --bpp 4 --format lvgl \
   -r 0x20-0x7E --symbols "$CHARS" --lv-include lvgl.h \
   --lv-font-name rsr_font_cjk_24 -o "$ROOT/firmware/main/fonts/rsr_font_cjk_24.c"
 echo "glyphs: $CHARS"
