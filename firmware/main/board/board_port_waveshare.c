@@ -658,9 +658,10 @@ void board_port_badge_show_frame(const void *image_dsc)
 {
     if (bsp_display_lock(-1) != ESP_OK) return;
     if (s_requested_mode == APP_MODE_BADGE && s_badge_img && !s_powering_off) {
-        lv_image_cache_drop(image_dsc);          /* same buffer, new pixels */
+        /* Player alternates two buffers, so the src pointer changes every frame. */
         lv_image_set_src(s_badge_img, image_dsc);
-        if (lv_obj_has_flag(s_badge_img, LV_OBJ_FLAG_HIDDEN)) lv_obj_remove_flag(s_badge_img, LV_OBJ_FLAG_HIDDEN);
+        set_hidden(s_badge_img, false);
+        lv_obj_invalidate(s_badge_img);
     }
     bsp_display_unlock();
 }
