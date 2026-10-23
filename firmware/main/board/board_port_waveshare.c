@@ -309,9 +309,9 @@ esp_err_t board_port_init(void)
                                   COLOR_BUTTON, 0x8B4A35, UI_FONT);
     lv_obj_align(s_center_button, LV_ALIGN_CENTER, 0, 5);
     lv_obj_set_style_border_width(s_center_button, 4, 0);
-    lv_obj_set_style_shadow_color(s_center_button, lv_color_hex(0x73321F), 0);
-    lv_obj_set_style_shadow_width(s_center_button, 24, 0);
-    lv_obj_set_style_shadow_opa(s_center_button, LV_OPA_20, 0);
+    /* No box shadow: LVGL's software shadow on a 210 px circle took >5 s per frame on the
+     * ESP32-S3 and tripped task_wdt (decoded backtrace: lv_draw_sw_box_shadow). */
+    lv_obj_set_style_shadow_width(s_center_button, 0, 0);
     lv_obj_add_event_cb(s_center_button, main_button_event, LV_EVENT_ALL, NULL);
     s_center_label = lv_obj_get_child(s_center_button, 0);
     lv_obj_set_style_text_font(s_center_label, UI_FONT, 0);
