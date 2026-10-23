@@ -282,7 +282,7 @@ esp_err_t badge_enter(void)
     s_active = true;
     const uint32_t gen = ++s_gen;
     start_wifi();
-    if (xTaskCreatePinnedToCore(player_task, "badge_play", 6144, (void *)(uintptr_t)gen, 3, NULL, 1) != pdPASS) {
+    if (xTaskCreatePinnedToCore(player_task, "badge_play", 16384, (void *)(uintptr_t)gen, 3, NULL, 1) != pdPASS) {
         ESP_LOGE(TAG, "player task create failed");
         return ESP_ERR_NO_MEM;
     }
